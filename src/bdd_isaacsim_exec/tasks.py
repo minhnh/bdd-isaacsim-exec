@@ -14,6 +14,7 @@ from omni.isaac.core.scenes.scene import Scene as IsaacScene
 NS_M_TMPL = Namespace(f"{URL_SECORO_M}/acceptance-criteria/bdd/templates/")
 URI_M_BHV_PICKPLACE = NS_M_TMPL["bhv-pickplace"]
 URI_M_TASK_PICKPLACE = NS_M_TMPL["task-pickplace"]
+URI_M_TASK_SORTING = NS_M_TMPL["task-sorting"]
 
 
 class PickPlace(BaseTask):
@@ -71,18 +72,23 @@ class PickPlace(BaseTask):
 
 
 def load_isaacsim_task(
-    world: World, graph: Graph, scenario: ScenarioVariantModel, **kwargs: Any
+    world: World, graph: Graph, scr_var: ScenarioVariantModel, **kwargs: Any
 ) -> BaseTask:
-    task_name = get_valid_var_name(scenario.task_id.n3(namespace_manager=graph.namespace_manager))
+    task_name = get_valid_var_name(
+        scr_var.scenario.task_id.n3(namespace_manager=graph.namespace_manager)
+    )
     try:
         return world.get_task(task_name)
     except Exception:
         # task is not added
         pass
 
-    if scenario.task_id == URI_M_TASK_PICKPLACE:
-        task = PickPlace(graph=graph, scene_model=scenario.scene, task_name=task_name, **kwargs)
+    if (
+        scr_var.scenario.task_id == URI_M_TASK_PICKPLACE
+        or scr_var.scenario.task_id == URI_M_TASK_SORTING
+    ):
+        task = PickPlace(graph=graph, scene_model=scr_var.scene, task_name=task_name, **kwargs)
         world.add_task(task)
         return task
 
-    raise RuntimeError(f"unhandled task: {scenario.task_id}")
+    raise RuntimeError(f"unhandled task: {scr_var.scenario.task_id}")
