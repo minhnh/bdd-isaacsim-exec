@@ -29,7 +29,6 @@ from bdd_dsl.models.user_story import UserStoryLoader
 from bdd_dsl.simulation.common import (
     URI_SIM_PRED_PATH,
     URI_SIM_TYPE_RES_PATH,
-    load_attr_has_config,
     load_attr_path,
 )
 
@@ -87,10 +86,10 @@ def before_scenario(context: Context, scenario: Scenario):
         full_graph=model_graph, variant_id=scenario_var_uri
     )
     scenario_var_model.scene.obj_model_loader.register_attr_loaders(
-        load_attr_path, load_attr_has_config, load_py_module_attr
+        load_attr_path, load_py_module_attr
     )
     scenario_var_model.scene.agn_model_loader.register_attr_loaders(
-        load_attr_path, load_attr_has_config, load_py_module_attr
+        load_attr_path, load_py_module_attr
     )
     context.current_scenario = scenario_var_model
 
