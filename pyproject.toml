@@ -30,5 +30,8 @@ dependencies = [
 [tool.ruff]
 line-length = 100
 
+[tool.ruff.lint.per-file-ignores]
+"examples/environment.py" = ["F401"]
+
 [tool.black]
 line-length = 100
