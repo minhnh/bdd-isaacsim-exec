@@ -55,7 +55,7 @@ class PickPlace(BaseTask):
             obj_prim = create_rigid_prim_in_scene(
                 scene=scene,
                 ns_manager=self._ns_manager,
-                obj_model=self._obj_models[obj_id],
+                model=self._obj_models[obj_id],
                 prim_prefix="/World/Objects/",
             )
             self._obj_prims[obj_id] = obj_prim
@@ -65,7 +65,7 @@ class PickPlace(BaseTask):
             agn_prim = create_rigid_prim_in_scene(
                 scene=scene,
                 ns_manager=self._ns_manager,
-                obj_model=self._agn_models[agn_id],
+                model=self._agn_models[agn_id],
                 prim_prefix="/World/Agents/",
             )
             self._agn_prims[agn_id] = agn_prim
