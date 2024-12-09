@@ -37,4 +37,4 @@ def before_all(context: Context):
             sys.exit(1)
 
     context.model_graph = g
-    before_all_isaac(context, headless=True)
+    before_all_isaac(context, headless=False)
