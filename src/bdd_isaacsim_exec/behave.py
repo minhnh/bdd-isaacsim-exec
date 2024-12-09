@@ -16,19 +16,16 @@ from bdd_dsl.behave import (
     PARAM_AGN,
     PARAM_EVT,
     PARAM_OBJ,
-    PARAM_PICK_WS,
-    PARAM_PLACE_WS,
     PARAM_WS,
     load_obj_models_from_table,
     load_agn_models_from_table,
     load_str_params,
+    load_ws_models_from_table,
     parse_str_param,
 )
 from bdd_dsl.execution.common import ExecutionModel
 from bdd_dsl.models.user_story import UserStoryLoader
 from bdd_dsl.simulation.common import (
-    URI_SIM_PRED_PATH,
-    URI_SIM_TYPE_RES_PATH,
     load_attr_path,
 )
 
@@ -85,7 +82,7 @@ def before_scenario(context: Context, scenario: Scenario):
     scenario_var_model = us_loader.load_scenario_variant(
         full_graph=model_graph, variant_id=scenario_var_uri
     )
-    scenario_var_model.scene.obj_model_loader.register_attr_loaders(
+    scenario_var_model.scene.env_model_loader.register_attr_loaders(
         load_attr_path, load_py_module_attr
     )
     scenario_var_model.scene.agn_model_loader.register_attr_loaders(
@@ -98,11 +95,12 @@ def before_scenario(context: Context, scenario: Scenario):
 
     task = load_isaacsim_task(world=context.world, graph=model_graph, scr_var=scenario_var_model)
     print(f"**** Loaded Isaac Sim Task {task.name}")
-    context.world.reset()
+    context.task = task
     # context.behaviour.reset()
 
 
 def after_scenario(context: Context, scenario: Scenario):
+    context.task.cleanup_scene_models()
     context.world.clear()
 
 
@@ -115,22 +113,19 @@ def given_objects_isaac(context: Context):
     for obj_model in load_obj_models_from_table(
         table=context.table, graph=context.model_graph, scene=context.current_scenario.scene
     ):
-        if URI_PY_TYPE_MODULE_ATTR in obj_model.model_types:
-            for py_model_uri in obj_model.model_type_to_id[URI_PY_TYPE_MODULE_ATTR]:
-                py_model = obj_model.models[py_model_uri]
-                assert py_model.has_attr(
-                    key=URI_PY_PRED_MODULE_NAME
-                ), f"Python attribute model '{py_model.id}' for object '{obj_model.id}' missing module name"
-                assert py_model.has_attr(
-                    key=URI_PY_PRED_ATTR_NAME
-                ), f"Python attribute model '{py_model.id}' for object '{obj_model.id}' missing attribute name"
+        context.task.add_scene_obj_model(obj_model=obj_model)
 
-        if URI_SIM_TYPE_RES_PATH in obj_model.model_types:
-            for py_model_uri in obj_model.model_type_to_id[URI_SIM_TYPE_RES_PATH]:
-                path_model = obj_model.load_first_model_by_type(model_type=URI_SIM_TYPE_RES_PATH)
-                assert path_model.has_attr(
-                    URI_SIM_PRED_PATH
-                ), f"ResourceWithPath model '{path_model.id}' for object '{obj_model.id}' missing attr path"
+
+def given_workspaces_isaac(context: Context):
+    assert context.table is not None, "no table added to context, expected a list of object URIs"
+    assert context.model_graph is not None, "no 'model_graph' in context, expected an rdflib.Graph"
+    assert (
+        context.current_scenario is not None
+    ), "no 'current_scenario' in context, expected a ScenarioVariantModel"
+    for ws_model in load_ws_models_from_table(
+        table=context.table, graph=context.model_graph, scene=context.current_scenario.scene
+    ):
+        context.task.add_scene_ws_model(ws_model=ws_model, graph=context.model_graph)
 
 
 def given_agents_isaac(context: Context):
@@ -142,15 +137,12 @@ def given_agents_isaac(context: Context):
     for agn_model in load_agn_models_from_table(
         table=context.table, graph=context.model_graph, scene=context.current_scenario.scene
     ):
-        if URI_PY_TYPE_MODULE_ATTR in agn_model.model_types:
-            for py_model_uri in agn_model.model_type_to_id[URI_PY_TYPE_MODULE_ATTR]:
-                py_model = agn_model.models[py_model_uri]
-                assert py_model.has_attr(
-                    key=URI_PY_PRED_MODULE_NAME
-                ), f"Python attribute model '{py_model.id}' for agent '{agn_model.id}' missing module name"
-                assert py_model.has_attr(
-                    key=URI_PY_PRED_ATTR_NAME
-                ), f"Python attribute model '{py_model.id}' for agent '{agn_model.id}' missing attribute name"
+        context.task.add_scene_agn_model(agn_model=agn_model)
+
+
+def setup_scene_isaac(context: Context):
+    # trigger set_up_scene() function in an Isaac Sim BaseTask
+    context.world.reset()
 
 
 def is_located_at_isaac(context: Context, **kwargs):
@@ -159,7 +151,7 @@ def is_located_at_isaac(context: Context, **kwargs):
     assert context.model_graph is not None, "no 'model_graph' in context"
     assert (
         context.current_scenario is not None
-    ), "no 'current_scenario' in context, expected an ObjModelLoader"
+    ), "no 'current_scenario' in context, expected a ScenarioVariantModel"
 
     _, pick_obj_uris = parse_str_param(
         param_str=params[PARAM_OBJ], ns_manager=context.model_graph.namespace_manager
@@ -182,7 +174,7 @@ def is_located_at_isaac(context: Context, **kwargs):
         param_str=params[PARAM_WS], ns_manager=context.model_graph.namespace_manager
     )
     for ws_uri in pick_ws_uris:
-        assert ws_uri in context.workspaces, f"workspace '{ws_uri}' unrecognized"
+        _ = context.current_scenario.scene.load_ws_model(graph=context.model_graph, ws_id=ws_uri)
 
     evt_uri = try_expand_curie(
         curie_str=params[PARAM_EVT], ns_manager=context.model_graph.namespace_manager, quiet=False
@@ -191,9 +183,7 @@ def is_located_at_isaac(context: Context, **kwargs):
 
 
 def behaviour_isaac(context: Context, **kwargs):
-    params = load_str_params(
-        param_names=[PARAM_AGN, PARAM_OBJ, PARAM_PICK_WS, PARAM_PLACE_WS], **kwargs
-    )
+    params = load_str_params(param_names=[PARAM_AGN, PARAM_OBJ, PARAM_WS], **kwargs)
 
     behaviour_model = getattr(context, "behaviour_model", None)
 
@@ -210,16 +200,17 @@ def behaviour_isaac(context: Context, **kwargs):
 
         behaviour_model = exec_model.load_behaviour_impl(
             context=context,
-            agn_id_str=params[PARAM_AGN],
-            obj_id_str=params[PARAM_OBJ],
-            pick_ws_str=params[PARAM_PICK_WS],
-            place_ws_str=params[PARAM_PLACE_WS],
             ns_manager=model_graph.namespace_manager,
         )
         context.behaviour_model = behaviour_model
 
     bhv = behaviour_model.behaviour
-    assert bhv is not None
-    bhv.reset(context=context)
+    assert bhv is not None, f"behaviour not processed for {behaviour_model.id}"
+    bhv.reset(
+        context=context,
+        agn_id_str=params[PARAM_AGN],
+        obj_id_str=params[PARAM_OBJ],
+        ws_id_str=params[PARAM_WS],
+    )
     while not bhv.is_finished(context=context):
         bhv.step(context=context)
