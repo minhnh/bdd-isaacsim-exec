@@ -33,10 +33,10 @@ from bdd_dsl.simulation.common import (
 def isaacsim_fixture(context: Context, **kwargs: Any):
     from isaacsim import SimulationApp
 
-    headless = kwargs.get("headless", False)
     unit_length = kwargs.get("unit_length", 1.0)
+    headless = context.headless
 
-    print("*** STARTING ISAAC SIM ****")
+    print(f"*** STARTING ISAAC SIM, headless={headless}, unit_length={unit_length} ****")
     context.simulation_app = SimulationApp({"headless": headless})
 
     from omni.isaac.core import World
@@ -49,8 +49,9 @@ def isaacsim_fixture(context: Context, **kwargs: Any):
     context.simulation_app.close()
 
 
-def before_all_isaac(context: Context, headless: bool = False):
-    use_fixture(isaacsim_fixture, context, headless=headless, unit_length=1.0)
+def before_all_isaac(context: Context, headless: bool):
+    context.headless = headless
+    use_fixture(isaacsim_fixture, context, unit_length=1.0)
 
     g = getattr(context, "model_graph", None)
     assert g is not None, "'model_graph' attribute not found in context"
@@ -184,6 +185,11 @@ def is_located_at_isaac(context: Context, **kwargs):
 
 def behaviour_isaac(context: Context, **kwargs):
     params = load_str_params(param_names=[PARAM_AGN, PARAM_OBJ, PARAM_WS], **kwargs)
+    context.task.set_params(
+        agn_id_str=params[PARAM_AGN],
+        obj_id_str=params[PARAM_OBJ],
+        ws_id_str=params[PARAM_WS],
+    )
 
     behaviour_model = getattr(context, "behaviour_model", None)
 
@@ -206,11 +212,11 @@ def behaviour_isaac(context: Context, **kwargs):
 
     bhv = behaviour_model.behaviour
     assert bhv is not None, f"behaviour not processed for {behaviour_model.id}"
-    bhv.reset(
-        context=context,
-        agn_id_str=params[PARAM_AGN],
-        obj_id_str=params[PARAM_OBJ],
-        ws_id_str=params[PARAM_WS],
-    )
-    while not bhv.is_finished(context=context):
+    bhv.reset(context=context)
+    render = not context.headless
+    while context.simulation_app.is_running():
+        if bhv.is_finished(context=context):
+            break
+        context.world.step(render=render)
+        context.observations = context.world.get_observations()
         bhv.step(context=context)
