@@ -1,6 +1,7 @@
 # SPDX-License-Identifier:  GPL-3.0-or-later
-from typing import Any, Generator, Optional
-from numpy import ndarray
+from enum import Enum
+from typing import Any
+import numpy as np
 from rdflib import Graph, Namespace, URIRef
 from rdflib.namespace import NamespaceManager
 from rdf_utils.naming import get_valid_var_name
@@ -16,12 +17,20 @@ from omni.isaac.core.tasks import BaseTask
 from omni.isaac.core.prims.rigid_prim import RigidPrim
 from omni.isaac.core.robots.robot import Robot
 from omni.isaac.core.scenes.scene import Scene as IsaacScene
+import omni.isaac.core.utils.bounds as bounds_utils
 
 
 NS_M_TMPL = Namespace(f"{URL_SECORO_M}/acceptance-criteria/bdd/templates/")
 URI_M_BHV_PICKPLACE = NS_M_TMPL["bhv-pickplace"]
 URI_M_TASK_PICKPLACE = NS_M_TMPL["task-pickplace"]
 URI_M_TASK_SORTING = NS_M_TMPL["task-sorting"]
+
+
+class MeasurementType(Enum):
+    OBJ_POSE = 0
+    WS_POSE = 1
+    WS_BOUNDS = 2
+    AGN_JNT_POSITIONS = 3
 
 
 class PickPlace(BaseTask):
@@ -34,6 +43,7 @@ class PickPlace(BaseTask):
     _obj_id: URIRef
     _agent_id: URIRef
     _place_ws_ids: list[URIRef]
+    _measurements: dict[URIRef, set[MeasurementType]]
 
     def __init__(
         self, scene_model: SceneModel, task_name: str, ns_manger: NamespaceManager, **kwargs: Any
@@ -49,6 +59,8 @@ class PickPlace(BaseTask):
         self._obj_models = {}
         self._ws_models = {}
         self._agn_models = {}
+        self._measurements = {}
+        self._bb_cache = bounds_utils.create_bbox_cache()
 
     def get_agn_model(self, agn_id: URIRef) -> AgentModel:
         assert agn_id in self._agn_models, f"Task {self.name}: no modelfor agent {agn_id}"
@@ -72,26 +84,32 @@ class PickPlace(BaseTask):
         ):
             self.add_scene_obj_model(obj_model=obj_model)
 
+    def add_measurement(self, elem_id: URIRef, meas_type: MeasurementType) -> None:
+        try:
+            meas_type = MeasurementType(meas_type)
+        except ValueError as e:
+            raise RuntimeError(f"Measurement type '{meas_type}' not supported: {e}")
+        if elem_id not in self._measurements:
+            self._measurements[elem_id] = set()
+
+        if meas_type == MeasurementType.OBJ_POSE:
+            assert (
+                elem_id in self._obj_models
+            ), f"'{meas_type}' for obj '{elem_id.n3(namespace_manager=self._ns_manager)}': obj URI not on record"
+        elif meas_type == MeasurementType.WS_POSE or meas_type == MeasurementType.WS_BOUNDS:
+            assert (
+                elem_id in self._ws_models
+            ), f"'{meas_type}' for ws '{elem_id.n3(namespace_manager=self._ns_manager)}': ws URI not on record"
+        elif meas_type == MeasurementType.AGN_JNT_POSITIONS:
+            assert (
+                elem_id in self._agn_models
+            ), f"'{meas_type}' for agn '{elem_id.n3(namespace_manager=self._ns_manager)}': agn URI not on record"
+        self._measurements[elem_id].add(meas_type)
+
     def add_scene_agn_model(self, agn_model: AgentModel) -> None:
         if agn_model.id in self._agn_models:
             return
         self._agn_models[agn_model.id] = agn_model
-
-    def get_ws_obj_ids_re(
-        self, ws_id: URIRef, ws_path: Optional[set[URIRef]] = None
-    ) -> Generator[URIRef, None, None]:
-        if ws_path is None:
-            ws_path = set()
-
-        assert ws_id not in ws_path, f"loop detected at ws '{ws_id}'"
-        ws_path.add(ws_id)
-
-        assert ws_id in self._ws_models, f"ws '{ws_id}' not in scene"
-        for obj_id in self._ws_models[ws_id].objects:
-            yield obj_id
-        for sub_ws_id in self._ws_models[ws_id].workspaces:
-            for obj_id in self.get_ws_obj_ids_re(ws_id=sub_ws_id, ws_path=ws_path):
-                yield obj_id
 
     def set_up_scene(self, scene: IsaacScene) -> None:
         super().set_up_scene(scene)
@@ -104,7 +122,7 @@ class PickPlace(BaseTask):
                 scene=scene,
                 ns_manager=self._ns_manager,
                 model=obj_model,
-                prim_prefix="/World/Objects/",
+                prim_prefix="/World/",
             )
             self._obj_prims[obj_id] = obj_prim
 
@@ -114,7 +132,7 @@ class PickPlace(BaseTask):
                 scene=scene,
                 ns_manager=self._ns_manager,
                 model=agn_model,
-                prim_prefix="/World/Agents/",
+                prim_prefix="/World/",
             )
             assert isinstance(
                 agn_prim, Robot
@@ -180,42 +198,72 @@ class PickPlace(BaseTask):
 
         return params
 
-    def get_obj_pose(self, obj_id: URIRef) -> tuple[ndarray, ndarray]:
+    def get_obj_pose(self, obj_id: URIRef) -> tuple[np.ndarray, np.ndarray]:
         assert obj_id in self._obj_prims, f"Isaac Task '{self.name}': no prim for obj '{obj_id}'"
-        return self._obj_prims[obj_id].get_local_pose()
+        obj_position, obj_orientation = self._obj_prims[obj_id].get_local_pose()
+        assert (
+            len(obj_position) == 3
+        ), f"unexpected length for obj {obj_id.n3(namespace_manager=self._ns_manager)} pos: {obj_position}"
+        assert isinstance(
+            obj_position, np.ndarray
+        ), f"unexpected type for obj {obj_id.n3(namespace_manager=self._ns_manager)} pos: {obj_position}"
+        assert (
+            len(obj_orientation) == 4
+        ), f"unexpected length for obj {obj_id.n3(namespace_manager=self._ns_manager)} orn: {obj_orientation}"
+        assert isinstance(
+            obj_orientation, np.ndarray
+        ), f"unexpected type for obj {obj_id.n3(namespace_manager=self._ns_manager)} orn: {obj_orientation}"
+        return obj_position, obj_orientation
 
-    def get_ws_pose(self, ws_id: URIRef) -> dict[URIRef, tuple[ndarray, ndarray]]:
+    def get_ws_pose(self, ws_id: URIRef) -> dict[URIRef, tuple[np.ndarray, np.ndarray]]:
         assert ws_id in self._ws_models, f"Isaac Task '{self.name}': ws '{ws_id}' not on record"
         obj_poses = {}
-        for obj_id in self.get_ws_obj_ids_re(ws_id=ws_id):
+        for obj_id in self._ws_models[ws_id].objects:
             obj_position, obj_orientation = self.get_obj_pose(obj_id=obj_id)
             obj_poses[obj_id] = {"position": obj_position, "orientation": obj_orientation}
         return obj_poses
 
-    def get_agn_ee_pose(self, agn_id: URIRef) -> tuple[ndarray, ndarray]:
-        assert agn_id in self._agn_prims, f"Isaac Task '{self.name}': no prim for agn '{agn_id}'"
-        return self._agn_prims[agn_id].end_effector.get_local_pose()
-
-    def get_agn_joint_positions(self, agn_id: URIRef) -> ndarray:
+    def get_agn_joint_positions(self, agn_id: URIRef) -> np.ndarray:
         assert agn_id in self._agn_prims, f"Isaac Task '{self.name}': no prim for agn '{agn_id}'"
         return self._agn_prims[agn_id].get_joint_positions()
 
     def get_observations(self) -> dict:
         """Return observations"""
-        obj_position, obj_orientation = self.get_obj_pose(obj_id=self._obj_id)
-        ee_position, ee_orientation = self.get_agn_ee_pose(agn_id=self._agn_id)
-        agn_joint_positions = self.get_agn_joint_positions(agn_id=self._agn_id)
-        obs = {
-            self._obj_id: {"position": obj_position, "orientation": obj_orientation},
-            self._agn_id: {
-                "ee_position": ee_position,
-                "ee_orientation": ee_orientation,
-                "joint_positions": agn_joint_positions,
-            },
-        }
-        for ws_id in self._place_ws_ids:
-            ws_obj_poses = self.get_ws_pose(ws_id=ws_id)
-            obs |= ws_obj_poses
+        obs = {}
+        for uri, meas_types in self._measurements.items():
+            if uri not in obs:
+                obs[uri] = {}
+
+            if MeasurementType.OBJ_POSE in meas_types:
+                obj_position, obj_orientation = self.get_obj_pose(obj_id=uri)
+                obs[uri] |= {"position": obj_position, "orientation": obj_orientation}
+
+            if MeasurementType.WS_POSE in meas_types:
+                ws_obj_poses = self.get_ws_pose(ws_id=uri)
+                obs[uri]["objects"] = self._ws_models[uri].objects
+                obs |= ws_obj_poses
+                continue
+
+            if MeasurementType.WS_BOUNDS in meas_types:
+                final_bounds = np.repeat([[np.finfo("f").max, np.finfo("f").min]], 3)
+                for obj_id in self._ws_models[uri].objects:
+                    obj_bounds = bounds_utils.compute_aabb(
+                        self._bb_cache, prim_path=self._obj_prims[obj_id].prim_path
+                    )
+                    final_bounds = np.concatenate(
+                        (
+                            np.minimum(final_bounds[:3], obj_bounds[:3]),
+                            np.maximum(final_bounds[3:], obj_bounds[3:]),
+                        )
+                    )
+                obs[uri]["bounds"] = final_bounds
+
+            if MeasurementType.AGN_JNT_POSITIONS in meas_types:
+                agn_joint_positions = self.get_agn_joint_positions(agn_id=self._agn_id)
+                obs[uri] |= {
+                    "joint_positions": agn_joint_positions,
+                }
+
         return obs
 
     def cleanup_scene_models(self) -> None:
@@ -228,6 +276,7 @@ class PickPlace(BaseTask):
         self._agn_models.clear()
         self._obj_prims.clear()
         self._agn_prims.clear()
+        self._measurements.clear()
 
 
 def load_isaacsim_task(
