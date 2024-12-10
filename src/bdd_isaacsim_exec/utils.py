@@ -24,6 +24,8 @@ from omni.isaac.core.utils.prims import is_prim_path_valid
 
 
 _CACHED_ASSET_ROOT = None
+OBJ_POSITION_LOWER_BOUNDS = [0.2, -0.3, 0.8]
+OBJ_POSITION_UPPER_BOUNDS = [0.5, 0.3, 0.9]
 
 
 def get_cached_assets_root_path() -> str:
@@ -68,6 +70,12 @@ def create_rigid_prim_in_scene(
         obj_configs["scale"] = check_or_convert_ndarray(obj_configs["scale"]) / get_stage_units()
     if "color" in obj_configs:
         obj_configs["color"] = check_or_convert_ndarray(obj_configs["color"]) / get_stage_units()
+
+    if "position" not in obj_configs:
+        from numpy.random import uniform
+
+        obj_position = uniform(OBJ_POSITION_LOWER_BOUNDS, OBJ_POSITION_UPPER_BOUNDS)
+        obj_configs["position"] = obj_position / get_stage_units()
 
     prim_path = find_unique_string_name(
         initial_name=prim_prefix + id_str,
