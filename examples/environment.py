@@ -25,6 +25,8 @@ MODELS = {
     f"{URL_SECORO_M}/acceptance-criteria/bdd/pickplace-secorolab-isaac.exec.json": "json-ld",
 }
 
+DEFAULT_ISAAC_PHYSICS_DT_SEC = 1.0 / 60.0
+
 
 def before_all(context: Context):
     install_resolver()
@@ -37,4 +39,4 @@ def before_all(context: Context):
             sys.exit(1)
 
     context.model_graph = g
-    before_all_isaac(context, headless=False)
+    before_all_isaac(context=context, headless=False, time_step_sec=DEFAULT_ISAAC_PHYSICS_DT_SEC)

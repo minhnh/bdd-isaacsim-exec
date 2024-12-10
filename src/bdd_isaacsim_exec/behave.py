@@ -1,5 +1,6 @@
 # SPDX-License-Identifier:  GPL-3.0-or-later
 from typing import Any
+import time
 from rdflib import Graph
 from behave import use_fixture
 from behave.model import Scenario
@@ -35,13 +36,14 @@ def isaacsim_fixture(context: Context, **kwargs: Any):
 
     unit_length = kwargs.get("unit_length", 1.0)
     headless = context.headless
+    time_step_sec = context.time_step_sec
 
     print(f"*** STARTING ISAAC SIM, headless={headless}, unit_length={unit_length} ****")
     context.simulation_app = SimulationApp({"headless": headless})
 
     from omni.isaac.core import World
 
-    context.world = World(stage_units_in_meters=unit_length)
+    context.world = World(stage_units_in_meters=unit_length, physics_dt=time_step_sec)
 
     yield context.simulation_app
 
@@ -49,8 +51,9 @@ def isaacsim_fixture(context: Context, **kwargs: Any):
     context.simulation_app.close()
 
 
-def before_all_isaac(context: Context, headless: bool):
+def before_all_isaac(context: Context, headless: bool, time_step_sec: float):
     context.headless = headless
+    context.time_step_sec = time_step_sec
     use_fixture(isaacsim_fixture, context, unit_length=1.0)
 
     g = getattr(context, "model_graph", None)
@@ -214,9 +217,15 @@ def behaviour_isaac(context: Context, **kwargs):
     assert bhv is not None, f"behaviour not processed for {behaviour_model.id}"
     bhv.reset(context=context)
     render = not context.headless
+    time_step_sec = context.time_step_sec
+    now = time.process_time()
+    loop_end = now
     while context.simulation_app.is_running():
         if bhv.is_finished(context=context):
             break
         context.world.step(render=render)
         context.observations = context.world.get_observations()
         bhv.step(context=context)
+        loop_end += time_step_sec
+        while now < loop_end:
+            now = time.process_time()
