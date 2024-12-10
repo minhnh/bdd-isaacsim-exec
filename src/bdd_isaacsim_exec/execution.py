@@ -6,6 +6,7 @@ from rdflib import Namespace, URIRef
 from rdflib.namespace import NamespaceManager
 from bdd_dsl.execution.common import Behaviour
 
+from bdd_isaacsim_exec.tasks import MeasurementType
 from omni.isaac.manipulators.controllers import PickPlaceController as GenPickPlaceController
 from omni.isaac.core.controllers.articulation_controller import ArticulationController
 
@@ -49,6 +50,13 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
         rand_ws_index = np.random.randint(len(place_ws_ids))
         self.ws_id = place_ws_ids[rand_ws_index]
 
+        # add measurements required by behaviour
+        context.task.add_measurement(elem_id=self.obj_id, meas_type=MeasurementType.OBJ_POSE)
+        context.task.add_measurement(elem_id=self.ws_id, meas_type=MeasurementType.WS_POSE)
+        context.task.add_measurement(
+            elem_id=self.agn_id, meas_type=MeasurementType.AGN_JNT_POSITIONS
+        )
+
         agn_prim = context.task.get_agn_prim(self.agn_id)
         self._art_ctrl = agn_prim.get_articulation_controller()
 
@@ -82,9 +90,10 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
         ), f"Behaviour '{self.id}': params are None, step() expects reset() to be called first"
         obs = context.observations
         assert self.obj_id in obs, f"target obj '{self.obj_id}' not in observations"
+        assert self.ws_id in obs, f"target ws '{self.ws_id}' not in observations"
         assert self.agn_id in obs, f"target agn '{self.agn_id}' not in observations"
 
-        ws_obj_list = list(context.task.get_ws_obj_ids_re(ws_id=self.ws_id))
+        ws_obj_list = list(obs[self.ws_id]["objects"])
         assert len(ws_obj_list) == 1, f"unexpected number of ws objects (not 1): {ws_obj_list}"
         ws_obj_id = ws_obj_list[0]
         assert (

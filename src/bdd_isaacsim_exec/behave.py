@@ -1,16 +1,13 @@
 # SPDX-License-Identifier:  GPL-3.0-or-later
 from typing import Any
 import time
-from rdflib import Graph
+import numpy as np
 from behave import use_fixture
 from behave.model import Scenario
 from behave.runner import Context
-from rdf_utils.models.common import ModelLoader
+from rdflib import Graph, URIRef
 from rdf_utils.uri import try_expand_curie
 from rdf_utils.models.python import (
-    URI_PY_PRED_ATTR_NAME,
-    URI_PY_PRED_MODULE_NAME,
-    URI_PY_TYPE_MODULE_ATTR,
     load_py_module_attr,
 )
 from bdd_dsl.behave import (
@@ -18,6 +15,7 @@ from bdd_dsl.behave import (
     PARAM_EVT,
     PARAM_OBJ,
     PARAM_WS,
+    ParamType,
     load_obj_models_from_table,
     load_agn_models_from_table,
     load_str_params,
@@ -29,6 +27,9 @@ from bdd_dsl.models.user_story import UserStoryLoader
 from bdd_dsl.simulation.common import (
     load_attr_path,
 )
+
+
+DIST_THRESHOLD = 0.1
 
 
 def isaacsim_fixture(context: Context, **kwargs: Any):
@@ -61,7 +62,6 @@ def before_all_isaac(context: Context, headless: bool, time_step_sec: float):
 
     context.execution_model = ExecutionModel(graph=g)
     context.us_loader = UserStoryLoader(graph=g)
-    context.ws_model_loader = ModelLoader()
 
 
 def before_scenario(context: Context, scenario: Scenario):
@@ -150,39 +150,57 @@ def setup_scene_isaac(context: Context):
 
 
 def is_located_at_isaac(context: Context, **kwargs):
+    from bdd_isaacsim_exec.tasks import MeasurementType
+
     params = load_str_params(param_names=[PARAM_OBJ, PARAM_WS, PARAM_EVT], **kwargs)
 
     assert context.model_graph is not None, "no 'model_graph' in context"
+    ns_manager = context.model_graph.namespace_manager
+
     assert (
         context.current_scenario is not None
     ), "no 'current_scenario' in context, expected a ScenarioVariantModel"
 
-    _, pick_obj_uris = parse_str_param(
-        param_str=params[PARAM_OBJ], ns_manager=context.model_graph.namespace_manager
-    )
-    for obj_uri in pick_obj_uris:
-        obj_model = context.current_scenario.scene.load_obj_model(
-            graph=context.model_graph, obj_id=obj_uri
-        )
-        assert obj_model is not None, f"can't load model for object {obj_uri}"
-        if URI_PY_TYPE_MODULE_ATTR in obj_model.model_types:
-            py_model = obj_model.load_first_model_by_type(URI_PY_TYPE_MODULE_ATTR)
-            assert py_model.has_attr(
-                key=URI_PY_PRED_MODULE_NAME
-            ), f"Python attribute model '{py_model.id}' for object '{obj_model.id}' missing module name"
-            assert py_model.has_attr(
-                key=URI_PY_PRED_ATTR_NAME
-            ), f"Python attribute model '{py_model.id}' for object '{obj_model.id}' missing attribute name"
+    _, obj_uris = parse_str_param(param_str=params[PARAM_OBJ], ns_manager=ns_manager)
+    assert (
+        len(obj_uris) == 1
+    ), f"is_located_at_isaac: expected 1 obj, got '{len(obj_uris)}': {obj_uris}"
+    obj_id = obj_uris[0]
+    assert isinstance(obj_id, URIRef), f"obj id not a URI: {obj_id}"
+    context.task.add_measurement(elem_id=obj_id, meas_type=MeasurementType.OBJ_POSE)
 
-    _, pick_ws_uris = parse_str_param(
-        param_str=params[PARAM_WS], ns_manager=context.model_graph.namespace_manager
-    )
-    for ws_uri in pick_ws_uris:
-        _ = context.current_scenario.scene.load_ws_model(graph=context.model_graph, ws_id=ws_uri)
+    ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
+    for ws_id in ws_uris:
+        assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
+        context.task.add_measurement(elem_id=ws_id, meas_type=MeasurementType.WS_BOUNDS)
 
-    evt_uri = try_expand_curie(
-        curie_str=params[PARAM_EVT], ns_manager=context.model_graph.namespace_manager, quiet=False
-    )
+    obs = context.world.get_observations()
+    assert obj_id in obs, f"is_located_at_isaac: no measurement for obj '{obj_id.n3(ns_manager)}'"
+    obj_position = obs[obj_id]["position"]
+
+    is_located = True
+    if ws_param_type == ParamType.EXISTS_SET:
+        # Or comparision initialized to false
+        is_located = False
+
+    all_bounds = []
+    for ws_id in ws_uris:
+        assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
+        assert ws_id in obs, f"is_located_at_isaac: no measurement for ws '{ws_id.n3(ns_manager)}'"
+        assert "bounds" in obs[ws_id], f"bounds not loaded for ws '{ws_id}'"
+        ws_bounds = obs[ws_id]["bounds"]
+        all_bounds.append(ws_bounds)
+
+        is_above = np.all(np.greater(obj_position, ws_bounds[:3]))
+        is_below = np.all(np.less(obj_position, ws_bounds[3:] + DIST_THRESHOLD))
+        if ws_param_type == ParamType.EXISTS_SET:
+            is_located |= is_above and is_below
+        else:
+            is_located &= is_above and is_below
+
+    assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not contained by to workspace(s), bounds: {all_bounds}"
+
+    evt_uri = try_expand_curie(curie_str=params[PARAM_EVT], ns_manager=ns_manager, quiet=False)
     assert evt_uri is not None, f"can't parse '{params[PARAM_EVT]}' as URI"
 
 
@@ -220,12 +238,20 @@ def behaviour_isaac(context: Context, **kwargs):
     time_step_sec = context.time_step_sec
     now = time.process_time()
     loop_end = now
+    exec_times = []
     while context.simulation_app.is_running():
         if bhv.is_finished(context=context):
             break
         context.world.step(render=render)
         context.observations = context.world.get_observations()
         bhv.step(context=context)
+        exec_times.append(time.process_time() - now)
         loop_end += time_step_sec
         while now < loop_end:
             now = time.process_time()
+
+    print(
+        f"\n\n*** Execution time statistics (secs) for '{len(exec_times)}' loops:"
+        + f" mean={np.mean(exec_times):.5f}, std={np.std(exec_times):.5f},"
+        + f" min={min(exec_times):.5f}, max={min(exec_times):.5f}\n\n"
+    )
