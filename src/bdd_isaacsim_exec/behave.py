@@ -187,7 +187,9 @@ def is_located_at_isaac(context: Context, **kwargs):
     for ws_id in ws_uris:
         assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
         assert ws_id in obs, f"is_located_at_isaac: no measurement for ws '{ws_id.n3(ns_manager)}'"
-        assert "bounds" in obs[ws_id], f"bounds not loaded for ws '{ws_id}'"
+        assert (
+            "bounds" in obs[ws_id]
+        ), f"bounds not loaded for ws '{ws_id.n3(ns_manager)}, meas: {obs[ws_id]}'"
         ws_bounds = obs[ws_id]["bounds"]
         all_bounds.append(ws_bounds)
 
@@ -198,7 +200,7 @@ def is_located_at_isaac(context: Context, **kwargs):
         else:
             is_located &= is_above and is_below
 
-    assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not contained by to workspace(s), bounds: {all_bounds}"
+    assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not in workspace(s), bounds: {all_bounds}"
 
     evt_uri = try_expand_curie(curie_str=params[PARAM_EVT], ns_manager=ns_manager, quiet=False)
     assert evt_uri is not None, f"can't parse '{params[PARAM_EVT]}' as URI"
