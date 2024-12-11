@@ -242,7 +242,6 @@ class PickPlace(BaseTask):
                 ws_obj_poses = self.get_ws_pose(ws_id=uri)
                 obs[uri]["objects"] = self._ws_models[uri].objects
                 obs |= ws_obj_poses
-                continue
 
             if MeasurementType.WS_BOUNDS in meas_types:
                 final_bounds = np.repeat([[np.finfo("f").max, np.finfo("f").min]], 3)
