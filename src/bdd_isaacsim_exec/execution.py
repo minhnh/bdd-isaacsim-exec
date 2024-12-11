@@ -9,6 +9,8 @@ from bdd_dsl.execution.common import Behaviour
 from bdd_isaacsim_exec.tasks import MeasurementType
 from omni.isaac.manipulators.controllers import PickPlaceController as GenPickPlaceController
 from omni.isaac.core.controllers.articulation_controller import ArticulationController
+from omni.isaac.core.objects import VisualCone
+from omni.isaac.core.utils.string import find_unique_string_name
 
 
 NS_FRANKA = Namespace("https://www.franka.de/")
@@ -35,6 +37,9 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
         super().__init__(bhv_id=bhv_id, bhv_types=bhv_types, context=context, **kwargs)
         self._ns_manager = ns_manager
         self._fsm = None
+
+        # add red visual cone to visualize target obj
+        self._vis_target = None
 
     def is_finished(self, context: Context, **kwargs: Any) -> bool:
         assert (
@@ -80,6 +85,25 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
                 f"Behaviour '{self.id}': unrecognized agent types: {agn_model.types}"
             )
 
+        vis_target_name = find_unique_string_name(
+            initial_name="visual_target",
+            is_unique_fn=lambda x: not context.world.scene.object_exists(x),
+        )
+        self._vis_target = context.world.scene.add(
+            VisualCone(
+                prim_path="/World/Xform/visual_target",
+                name=vis_target_name,
+                color=np.array([1.0, 0.0, 0.0]),
+                orientation=np.array([1, 0, 0, 0]),
+                radius=0.02,
+                height=0.02,
+            )
+        )
+
+        assert self._fsm is not None, "Behaviour.reset: _fsm is None"
+        agn_prim.gripper.open()
+        self._fsm.reset()
+
     def step(self, context: Context, **kwargs: Any) -> Any:
         assert (
             self.agn_id is not None
@@ -87,6 +111,7 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             and self.ws_id is not None
             and self._fsm is not None
             and self._art_ctrl is not None
+            and self._vis_target is not None
         ), f"Behaviour '{self.id}': params are None, step() expects reset() to be called first"
         obs = context.observations
         assert self.obj_id in obs, f"target obj '{self.obj_id}' not in observations"
@@ -100,10 +125,16 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             ws_obj_id in obs
         ), f"obj '{ws_obj_id}' of target place ws '{self.ws_id}' not in observations"
 
+        grasp_position = obs[self.obj_id]["position"]
+        self._vis_target.set_world_pose(
+            position=grasp_position + [0, 0, 0.05],
+            orientation=obs[self.obj_id]["orientation"],
+        )
+
         actions = self._fsm.forward(
-            picking_position=obs[self.obj_id]["position"],
+            picking_position=grasp_position,
             placing_position=obs[ws_obj_id]["position"],
             current_joint_positions=obs[self.agn_id]["joint_positions"],
-            end_effector_offset=np.array([0, 0.005, -0.015]),
+            end_effector_offset=np.array([0, 0.005, 0.0]),
         )
         self._art_ctrl.apply_action(actions)
