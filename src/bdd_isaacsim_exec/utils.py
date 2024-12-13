@@ -1,7 +1,7 @@
 # SPDX-License-Identifier:  GPL-3.0-or-later
 from os.path import exists as os_exists
 from typing import Union
-from numpy.random import uniform
+import numpy as np
 from rdflib.namespace import NamespaceManager
 from rdf_utils.naming import get_valid_var_name
 from rdf_utils.models.python import URI_PY_TYPE_MODULE_ATTR, import_attr_from_model
@@ -25,8 +25,8 @@ from omni.isaac.core.utils.prims import is_prim_path_valid
 
 
 _CACHED_ASSET_ROOT = None
-OBJ_POSITION_LOWER_BOUNDS = [0.25, -0.4, 0.12]
-OBJ_POSITION_UPPER_BOUNDS = [0.6, 0.4, 0.15]
+OBJ_POSITION_LOWER_BOUNDS = [0.25, -0.4, 0.15]
+OBJ_POSITION_UPPER_BOUNDS = [0.6, 0.4, 0.2]
 
 
 def get_cached_assets_root_path() -> str:
@@ -64,17 +64,21 @@ def create_rigid_prim_in_scene(
 
     # TODO(minhnh): handle initial poses
 
-    obj_configs = model.get_attr(key=URI_SIM_PRED_HAS_CONFIG)
-    assert obj_configs is not None and isinstance(obj_configs, dict), f"no configs for {model.id}"
+    prim_configs = {}
+    model_configs = model.get_attr(key=URI_SIM_PRED_HAS_CONFIG)
+    assert model_configs is not None and isinstance(
+        model_configs, dict
+    ), f"no configs for {model.id}"
+    prim_configs |= model_configs
 
-    if "scale" in obj_configs:
-        obj_configs["scale"] = check_or_convert_ndarray(obj_configs["scale"]) / get_stage_units()
-    if "color" in obj_configs:
-        obj_configs["color"] = check_or_convert_ndarray(obj_configs["color"]) / get_stage_units()
+    if "scale" in prim_configs:
+        prim_configs["scale"] = check_or_convert_ndarray(prim_configs["scale"]) / get_stage_units()
+    if "color" in prim_configs:
+        prim_configs["color"] = check_or_convert_ndarray(prim_configs["color"]) / get_stage_units()
 
-    if "position" not in obj_configs:
-        obj_position = uniform(OBJ_POSITION_LOWER_BOUNDS, OBJ_POSITION_UPPER_BOUNDS)
-        obj_configs["position"] = obj_position / get_stage_units()
+    if "position" not in prim_configs:
+        obj_position = np.random.uniform(OBJ_POSITION_LOWER_BOUNDS, OBJ_POSITION_UPPER_BOUNDS)
+        prim_configs["position"] = obj_position / get_stage_units()
 
     prim_path = find_unique_string_name(
         initial_name=prim_prefix + id_str,
@@ -115,7 +119,7 @@ def create_rigid_prim_in_scene(
             )
 
         add_reference_to_stage(usd_path=asset_path, prim_path=prim_path)
-        return scene.add(RigidPrim(prim_path=prim_path, name=obj_name, **obj_configs))
+        return scene.add(RigidPrim(prim_path=prim_path, name=obj_name, **prim_configs))
 
     if URI_PY_TYPE_MODULE_ATTR in model.model_types:
         correct_cls = None
@@ -128,6 +132,6 @@ def create_rigid_prim_in_scene(
             correct_cls is not None
         ), f"'{model.id}' has no handled Python class model: {model.models.keys()}"
 
-        return scene.add(correct_cls(name=obj_name, prim_path=prim_path, **obj_configs))
+        return scene.add(correct_cls(name=obj_name, prim_path=prim_path, **prim_configs))
 
     raise RuntimeError(f"unhandled types for object'{model.id}': {model.model_types}")
