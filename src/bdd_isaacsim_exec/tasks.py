@@ -122,7 +122,7 @@ class PickPlace(BaseTask):
                 scene=scene,
                 ns_manager=self._ns_manager,
                 model=obj_model,
-                prim_prefix="/World/",
+                prim_prefix="/World/Objects/",
             )
             self._obj_prims[obj_id] = obj_prim
 
@@ -132,7 +132,7 @@ class PickPlace(BaseTask):
                 scene=scene,
                 ns_manager=self._ns_manager,
                 model=agn_model,
-                prim_prefix="/World/",
+                prim_prefix="/World/Agents/",
             )
             assert isinstance(
                 agn_prim, Robot
@@ -200,7 +200,7 @@ class PickPlace(BaseTask):
 
     def get_obj_pose(self, obj_id: URIRef) -> tuple[np.ndarray, np.ndarray]:
         assert obj_id in self._obj_prims, f"Isaac Task '{self.name}': no prim for obj '{obj_id}'"
-        obj_position, obj_orientation = self._obj_prims[obj_id].get_local_pose()
+        obj_position, obj_orientation = self._obj_prims[obj_id].get_world_pose()
         assert (
             len(obj_position) == 3
         ), f"unexpected length for obj {obj_id.n3(namespace_manager=self._ns_manager)} pos: {obj_position}"
