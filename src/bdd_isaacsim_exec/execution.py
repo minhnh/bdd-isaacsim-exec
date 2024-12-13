@@ -16,7 +16,7 @@ from omni.isaac.core.utils.string import find_unique_string_name
 NS_FRANKA = Namespace("https://www.franka.de/")
 URI_M_AGN_TYPE_PANDA = NS_FRANKA["emika-panda"]
 NS_UR = Namespace("https://www.universal-robots.com/products/")
-URI_M_AGN_TYPE_UR10 = NS_UR["ur:ur10-robot"]
+URI_M_AGN_TYPE_UR10 = NS_UR["ur10-robot"]
 
 
 class IsaacsimPickPlaceBehaviour(Behaviour):
@@ -37,6 +37,7 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
         super().__init__(bhv_id=bhv_id, bhv_types=bhv_types, context=context, **kwargs)
         self._ns_manager = ns_manager
         self._fsm = None
+        self._gripper_offset = None
 
         # add red visual cone to visualize target obj
         self._vis_target = None
@@ -72,6 +73,7 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             self._fsm = PandaPickPlaceCtrl(
                 name="pick_place_controller", gripper=agn_prim.gripper, robot_articulation=agn_prim
             )
+            self._gripper_offset = np.array([0, 0.005, 0.0])
         elif URI_M_AGN_TYPE_UR10 in agn_model.types:
             from omni.isaac.universal_robots.controllers import (
                 PickPlaceController as URPickPlaceCtrl,
@@ -80,10 +82,13 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             self._fsm = URPickPlaceCtrl(
                 name="pick_place_controller", gripper=agn_prim.gripper, robot_articulation=agn_prim
             )
+            self._gripper_offset = np.array([0, 0.0, 0.01])
         else:
             raise RuntimeError(
                 f"Behaviour '{self.id}': unrecognized agent types: {agn_model.types}"
             )
+        if self._gripper_offset is None:
+            self._gripper_offset = np.zeros(3)
 
         vis_target_name = find_unique_string_name(
             initial_name="visual_target",
@@ -135,6 +140,6 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             picking_position=grasp_position,
             placing_position=obs[ws_obj_id]["position"],
             current_joint_positions=obs[self.agn_id]["joint_positions"],
-            end_effector_offset=np.array([0, 0.005, 0.0]),
+            end_effector_offset=self._gripper_offset,
         )
         self._art_ctrl.apply_action(actions)
