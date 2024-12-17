@@ -25,8 +25,24 @@ from omni.isaac.core.utils.prims import is_prim_path_valid
 
 
 _CACHED_ASSET_ROOT = None
+_CACHED_ID_STRS = set()
 OBJ_POSITION_LOWER_BOUNDS = [0.25, -0.4, 0.15]
 OBJ_POSITION_UPPER_BOUNDS = [0.6, 0.4, 0.2]
+
+
+def _get_unique_id_str(id_str: str, max_iteration: int = 100) -> str:
+    iter_count = 0
+    while True:
+        if iter_count > max_iteration:
+            raise RuntimeError(f"unable to find unique string after {max_iteration} iterations")
+        iter_count += 1
+
+        unique_str = id_str + f"{np.random.randint(65536):04x}"
+        if unique_str in _CACHED_ID_STRS:
+            continue
+        _CACHED_ID_STRS.add(unique_str)
+
+        return unique_str
 
 
 def get_cached_assets_root_path() -> str:
@@ -80,12 +96,13 @@ def create_rigid_prim_in_scene(
         obj_position = np.random.uniform(OBJ_POSITION_LOWER_BOUNDS, OBJ_POSITION_UPPER_BOUNDS)
         prim_configs["position"] = obj_position / get_stage_units()
 
+    unique_id_str = _get_unique_id_str(id_str=id_str)
     prim_path = find_unique_string_name(
-        initial_name=prim_prefix + id_str,
+        initial_name=prim_prefix + unique_id_str,
         is_unique_fn=lambda x: not is_prim_path_valid(x),
     )
     obj_name = find_unique_string_name(
-        initial_name=id_str,
+        initial_name=unique_id_str,
         is_unique_fn=lambda x: not scene.object_exists(x),
     )
 
