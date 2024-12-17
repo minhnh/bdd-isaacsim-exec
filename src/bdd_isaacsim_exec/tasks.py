@@ -31,6 +31,7 @@ class MeasurementType(Enum):
     WS_POSE = 1
     WS_BOUNDS = 2
     AGN_JNT_POSITIONS = 3
+    AGN_EE_LINEAR_VEL = 4
 
 
 class PickPlace(BaseTask):
@@ -100,7 +101,10 @@ class PickPlace(BaseTask):
             assert (
                 elem_id in self._ws_models
             ), f"'{meas_type}' for ws '{elem_id.n3(namespace_manager=self._ns_manager)}': ws URI not on record"
-        elif meas_type == MeasurementType.AGN_JNT_POSITIONS:
+        elif (
+            meas_type == MeasurementType.AGN_JNT_POSITIONS
+            or meas_type == MeasurementType.AGN_EE_LINEAR_VEL
+        ):
             assert (
                 elem_id in self._agn_models
             ), f"'{meas_type}' for agn '{elem_id.n3(namespace_manager=self._ns_manager)}': agn URI not on record"
@@ -227,6 +231,10 @@ class PickPlace(BaseTask):
         assert agn_id in self._agn_prims, f"Isaac Task '{self.name}': no prim for agn '{agn_id}'"
         return self._agn_prims[agn_id].get_joint_positions()
 
+    def get_agn_ee_linear_vel(self, agn_id: URIRef) -> np.ndarray:
+        assert agn_id in self._agn_prims, f"Isaac Task '{self.name}': no prim for agn '{agn_id}'"
+        return self._agn_prims[agn_id].end_effector.get_linear_velocity()
+
     def get_observations(self) -> dict:
         """Return observations"""
         obs = {}
@@ -258,10 +266,14 @@ class PickPlace(BaseTask):
                 obs[uri]["bounds"] = final_bounds
 
             if MeasurementType.AGN_JNT_POSITIONS in meas_types:
-                agn_joint_positions = self.get_agn_joint_positions(agn_id=self._agn_id)
+                agn_joint_positions = self.get_agn_joint_positions(agn_id=uri)
                 obs[uri] |= {
                     "joint_positions": agn_joint_positions,
                 }
+
+            if MeasurementType.AGN_EE_LINEAR_VEL in meas_types:
+                agn_ee_linear_vels = self.get_agn_ee_linear_vel(agn_id=uri)
+                obs[uri] |= {"ee_linear_velocities": agn_ee_linear_vels}
 
         return obs
 
