@@ -30,6 +30,7 @@ from bdd_dsl.simulation.common import (
 
 
 DIST_THRESHOLD = 0.1
+SPEED_THRESHOLD = 1
 
 
 def isaacsim_fixture(context: Context, **kwargs: Any):
@@ -206,7 +207,19 @@ def is_located_at_isaac(context: Context, **kwargs):
     assert evt_uri is not None, f"can't parse '{params[PARAM_EVT]}' as URI"
 
 
+def move_safely_isaac(context: Context, **kwargs):
+    assert context.model_graph is not None, "no 'model_graph' in context"
+    params = load_str_params(param_names=[PARAM_AGN], **kwargs)
+
+    assert hasattr(context, "agent_max_speed"), "move_safely_isaac: no 'agent_max_speed' in context"
+    assert (
+        context.agent_max_speed < SPEED_THRESHOLD
+    ), f"agent '{params[PARAM_AGN]}' moves EE too fast: {context.agn_max_speed} > {SPEED_THRESHOLD}"
+
+
 def behaviour_isaac(context: Context, **kwargs):
+    from bdd_isaacsim_exec.tasks import MeasurementType
+
     params = load_str_params(param_names=[PARAM_AGN, PARAM_OBJ, PARAM_WS], **kwargs)
     context.task.set_params(
         agn_id_str=params[PARAM_AGN],
@@ -233,10 +246,23 @@ def behaviour_isaac(context: Context, **kwargs):
         )
         context.behaviour_model = behaviour_model
 
+    render = not context.headless
+
     bhv = behaviour_model.behaviour
     assert bhv is not None, f"behaviour not processed for {behaviour_model.id}"
     bhv.reset(context=context)
-    render = not context.headless
+
+    # Move safely clause requires assertion over a time horizon
+    _, agn_uris = parse_str_param(
+        param_str=params[PARAM_AGN], ns_manager=context.model_graph.namespace_manager
+    )
+    assert len(agn_uris) == 1 and isinstance(
+        agn_uris[0], URIRef
+    ), f"unexpected agn params: {agn_uris}"
+    context.task.add_measurement(elem_id=agn_uris[0], meas_type=MeasurementType.AGN_EE_LINEAR_VEL)
+    agn_speeds = []
+    agn_max_speed = -1
+
     time_step_sec = context.time_step_sec
     now = time.process_time()
     loop_end = now
@@ -245,13 +271,28 @@ def behaviour_isaac(context: Context, **kwargs):
         if bhv.is_finished(context=context):
             break
         context.world.step(render=render)
-        context.observations = context.world.get_observations()
+        # observations
+        obs = context.world.get_observations()
+        agn_speed = np.linalg.norm(obs[agn_uris[0]]["ee_linear_velocities"])
+        if agn_speed > agn_max_speed:
+            agn_max_speed = agn_speed
+        agn_speeds.append(agn_speed)
+        context.observations = obs
+        # behaviour step
         bhv.step(context=context)
+        # real time check
         exec_times.append(time.process_time() - now)
         loop_end += time_step_sec
         while now < loop_end:
             now = time.process_time()
 
+    context.agent_max_speed = agn_max_speed
+
+    print(
+        "\n\n*** Agent speed statistics: "
+        + f" mean={np.mean(agn_speeds):.5f}, std={np.std(agn_speeds):.5f},"
+        + f" min={min(agn_speeds):.5f}, max={min(agn_speeds):.5f}\n\n"
+    )
     print(
         f"\n\n*** Execution time statistics (secs) for '{len(exec_times)}' loops:"
         + f" mean={np.mean(exec_times):.5f}, std={np.std(exec_times):.5f},"
