@@ -164,11 +164,17 @@ def is_located_at_isaac(context: Context, **kwargs):
 
     _, obj_uris = parse_str_param(param_str=params[PARAM_OBJ], ns_manager=ns_manager)
     assert (
-        len(obj_uris) == 1
-    ), f"is_located_at_isaac: expected 1 obj, got '{len(obj_uris)}': {obj_uris}"
+        len(obj_uris) > 0
+    ), f"is_located_at_isaac: expected at least 1 obj, got '{len(obj_uris)}': {obj_uris}"
+    for uri in obj_uris:
+        assert isinstance(uri, URIRef), f"obj id not a URI: {uri}"
+        context.task.add_measurement(elem_id=uri, meas_type=MeasurementType.OBJ_POSE)
+
+    if len(obj_uris) > 1:
+        # TODO(minhnh): handle sorting case
+        return
     obj_id = obj_uris[0]
-    assert isinstance(obj_id, URIRef), f"obj id not a URI: {obj_id}"
-    context.task.add_measurement(elem_id=obj_id, meas_type=MeasurementType.OBJ_POSE)
+    assert isinstance(obj_id, URIRef)
 
     ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
     for ws_id in ws_uris:
@@ -214,7 +220,7 @@ def move_safely_isaac(context: Context, **kwargs):
     assert hasattr(context, "agent_max_speed"), "move_safely_isaac: no 'agent_max_speed' in context"
     assert (
         context.agent_max_speed < SPEED_THRESHOLD
-    ), f"agent '{params[PARAM_AGN]}' moves EE too fast: {context.agn_max_speed} > {SPEED_THRESHOLD}"
+    ), f"agent '{params[PARAM_AGN]}' moves EE too fast: {context.agent_max_speed:.5f} > {SPEED_THRESHOLD:.5f}"
 
 
 def behaviour_isaac(context: Context, **kwargs):
@@ -265,7 +271,7 @@ def behaviour_isaac(context: Context, **kwargs):
 
     time_step_sec = context.time_step_sec
     now = time.process_time()
-    loop_end = now
+    loop_end = now + time_step_sec
     exec_times = []
     while context.simulation_app.is_running():
         if bhv.is_finished(context=context):
@@ -282,19 +288,23 @@ def behaviour_isaac(context: Context, **kwargs):
         bhv.step(context=context)
         # real time check
         exec_times.append(time.process_time() - now)
-        loop_end += time_step_sec
-        while now < loop_end:
+        while True:
+            # equivalent to do-while loop
             now = time.process_time()
+            if now > loop_end:
+                break
+        while loop_end < now:
+            loop_end += time_step_sec
 
     context.agent_max_speed = agn_max_speed
 
     print(
         "\n\n*** Agent speed statistics: "
         + f" mean={np.mean(agn_speeds):.5f}, std={np.std(agn_speeds):.5f},"
-        + f" min={min(agn_speeds):.5f}, max={min(agn_speeds):.5f}\n\n"
+        + f" min={np.min(agn_speeds):.5f}, max={np.max(agn_speeds):.5f}"
     )
     print(
         f"\n\n*** Execution time statistics (secs) for '{len(exec_times)}' loops:"
         + f" mean={np.mean(exec_times):.5f}, std={np.std(exec_times):.5f},"
-        + f" min={min(exec_times):.5f}, max={min(exec_times):.5f}\n\n"
+        + f" min={np.min(exec_times):.5f}, max={np.max(exec_times):.5f}\n\n"
     )
