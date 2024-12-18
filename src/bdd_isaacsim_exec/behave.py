@@ -64,7 +64,7 @@ def before_all_isaac(context: Context, headless: bool, time_step_sec: float):
     context.us_loader = UserStoryLoader(graph=g)
 
 
-def before_scenario(context: Context, scenario: Scenario):
+def before_scenario_isaac(context: Context, scenario: Scenario):
     model_graph = getattr(context, "model_graph", None)
     assert model_graph is not None and isinstance(model_graph, Graph)
 
@@ -103,7 +103,7 @@ def before_scenario(context: Context, scenario: Scenario):
     # context.behaviour.reset()
 
 
-def after_scenario(context: Context, scenario: Scenario):
+def after_scenario_isaac(context: Context):
     context.task.cleanup_scene_models()
     context.world.clear()
 
