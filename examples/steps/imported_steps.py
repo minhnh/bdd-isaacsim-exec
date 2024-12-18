@@ -7,6 +7,7 @@ from bdd_dsl.behave import (
     CLAUSE_BHV_PICKPLACE,
     CLAUSE_FL_LOCATED_AT,
     CLAUSE_FL_MOVE_SAFE,
+    CLAUSE_FL_SORTED,
     CLAUSE_TC_AFTER_EVT,
     CLAUSE_TC_BEFORE_EVT,
     CLAUSE_TC_DURING,
@@ -16,6 +17,7 @@ from bdd_isaacsim_exec.behave import (
     given_workspaces_isaac,
     given_agents_isaac,
     is_located_at_isaac,
+    is_sorted_isaac,
     move_safely_isaac,
     behaviour_isaac,
     setup_scene_isaac,
@@ -30,6 +32,7 @@ given(f"{CLAUSE_FL_LOCATED_AT} {CLAUSE_TC_BEFORE_EVT}")(is_located_at_isaac)
 given(f"{CLAUSE_FL_LOCATED_AT} {CLAUSE_TC_AFTER_EVT}")(is_located_at_isaac)
 then(f"{CLAUSE_FL_LOCATED_AT} {CLAUSE_TC_BEFORE_EVT}")(is_located_at_isaac)
 then(f"{CLAUSE_FL_LOCATED_AT} {CLAUSE_TC_AFTER_EVT}")(is_located_at_isaac)
+then(f"{CLAUSE_FL_SORTED} {CLAUSE_TC_AFTER_EVT}")(is_sorted_isaac)
 then(f"{CLAUSE_FL_MOVE_SAFE} {CLAUSE_TC_DURING}")(move_safely_isaac)
 
 when(CLAUSE_BHV_PICKPLACE)(behaviour_isaac)
