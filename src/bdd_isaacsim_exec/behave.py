@@ -13,6 +13,8 @@ from rdf_utils.models.python import (
 from bdd_dsl.behave import (
     PARAM_AGN,
     PARAM_EVT,
+    PARAM_FROM_EVT,
+    PARAM_UNTIL_EVT,
     PARAM_OBJ,
     PARAM_WS,
     ParamType,
@@ -29,7 +31,7 @@ from bdd_dsl.simulation.common import (
 )
 
 
-DIST_THRESHOLD = 0.1
+DIST_THRESHOLD = 0.01
 SPEED_THRESHOLD = 1
 
 
@@ -150,6 +152,30 @@ def setup_scene_isaac(context: Context):
     context.world.reset()
 
 
+def _is_contained(
+    obj_position: np.ndarray, ws_bounds: np.ndarray, margin: float = DIST_THRESHOLD
+) -> bool:
+    assert (
+        len(obj_position) == 3 and len(ws_bounds) == 6
+    ), f"unexpeced input dims: len(position)={len(obj_position)}, len(ws bounds)={len(ws_bounds)}"
+    is_above = np.all(np.greater(obj_position, ws_bounds[:3] - margin))
+    is_below = np.all(np.less(obj_position, ws_bounds[3:] + margin))
+    return bool(is_above and is_below)
+
+
+def _is_above(
+    obj_position: np.ndarray, ws_bounds: np.ndarray, margin: float = DIST_THRESHOLD
+) -> bool:
+    assert (
+        len(obj_position) == 3 and len(ws_bounds) == 6
+    ), f"unexpeced input dims: len(position)={len(obj_position)}, len(ws bounds)={len(ws_bounds)}"
+    within_projection = np.all(np.greater(obj_position[:2], ws_bounds[:2] - margin)) and np.all(
+        np.less(obj_position[:2], ws_bounds[3:5] + margin)
+    )
+    is_above = obj_position[2] > ws_bounds[5] - margin
+    return bool(within_projection and is_above)
+
+
 def is_located_at_isaac(context: Context, **kwargs):
     from bdd_isaacsim_exec.tasks import MeasurementType
 
@@ -163,59 +189,71 @@ def is_located_at_isaac(context: Context, **kwargs):
     ), "no 'current_scenario' in context, expected a ScenarioVariantModel"
 
     _, obj_uris = parse_str_param(param_str=params[PARAM_OBJ], ns_manager=ns_manager)
+    ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
     assert (
-        len(obj_uris) > 0
-    ), f"is_located_at_isaac: expected at least 1 obj, got '{len(obj_uris)}': {obj_uris}"
+        len(obj_uris) > 0 and len(ws_uris) > 0
+    ), f"is_located_at_isaac: expected at least 1 obj & ws, got obj={obj_uris}, ws={ws_uris}"
+
     for uri in obj_uris:
         assert isinstance(uri, URIRef), f"obj id not a URI: {uri}"
         context.task.add_measurement(elem_id=uri, meas_type=MeasurementType.OBJ_POSE)
 
-    if len(obj_uris) > 1:
-        # TODO(minhnh): handle sorting case
-        return
-    obj_id = obj_uris[0]
-    assert isinstance(obj_id, URIRef)
-
-    ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
     for ws_id in ws_uris:
         assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
         context.task.add_measurement(elem_id=ws_id, meas_type=MeasurementType.WS_BOUNDS)
 
     obs = context.world.get_observations()
-    assert obj_id in obs, f"is_located_at_isaac: no measurement for obj '{obj_id.n3(ns_manager)}'"
-    obj_position = obs[obj_id]["position"]
 
-    is_located = True
-    if ws_param_type == ParamType.EXISTS_SET:
-        # Or comparision initialized to false
-        is_located = False
-
-    all_bounds = []
-    for ws_id in ws_uris:
-        assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
-        assert ws_id in obs, f"is_located_at_isaac: no measurement for ws '{ws_id.n3(ns_manager)}'"
+    for obj_id in obj_uris:
         assert (
-            "bounds" in obs[ws_id]
-        ), f"bounds not loaded for ws '{ws_id.n3(ns_manager)}, meas: {obs[ws_id]}'"
-        ws_bounds = obs[ws_id]["bounds"]
-        all_bounds.append(ws_bounds)
+            obj_id in obs
+        ), f"is_located_at_isaac: no measurement for obj '{obj_id.n3(ns_manager)}'"
+        obj_position = obs[obj_id]["position"]
 
-        is_above = np.all(np.greater(obj_position, ws_bounds[:3]))
-        is_below = np.all(np.less(obj_position, ws_bounds[3:] + DIST_THRESHOLD))
+        is_located = True
         if ws_param_type == ParamType.EXISTS_SET:
-            is_located |= is_above and is_below
-        else:
-            is_located &= is_above and is_below
+            # Or comparision initialized to false
+            is_located = False
 
-    assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not in workspace(s), bounds: {all_bounds}"
+        all_bounds = []
+        for ws_id in ws_uris:
+            assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
+            assert (
+                ws_id in obs
+            ), f"is_located_at_isaac: no measurement for ws '{ws_id.n3(ns_manager)}'"
+            assert (
+                "bounds" in obs[ws_id]
+            ), f"bounds not loaded for ws '{ws_id.n3(ns_manager)}, meas: {obs[ws_id]}'"
+            ws_bounds = obs[ws_id]["bounds"]
+            all_bounds.append(ws_bounds)
+
+            if "bin" in ws_id:
+                is_located_cur_ws = _is_contained(obj_position=obj_position, ws_bounds=ws_bounds)
+            elif "table" in ws_id:
+                is_located_cur_ws = _is_above(obj_position=obj_position, ws_bounds=ws_bounds)
+            elif "shelf" in ws_id:
+                is_located_cur_ws = _is_contained(obj_position=obj_position, ws_bounds=ws_bounds)
+            else:
+                raise RuntimeError(f"is_located: unrecognized ws type: {ws_id.n3(ns_manager)}")
+            if ws_param_type == ParamType.EXISTS_SET:
+                is_located |= is_located_cur_ws
+            else:
+                is_located &= is_located_cur_ws
+
+        assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not in workspace(s), bounds: {all_bounds}"
 
     evt_uri = try_expand_curie(curie_str=params[PARAM_EVT], ns_manager=ns_manager, quiet=False)
     assert evt_uri is not None, f"can't parse '{params[PARAM_EVT]}' as URI"
 
 
+def is_sorted_isaac(context: Context, **kwargs):
+    assert context.model_graph is not None, "no 'model_graph' in context"
+    _ = load_str_params(param_names=[PARAM_OBJ, PARAM_WS, PARAM_EVT], **kwargs)
+
+
 def move_safely_isaac(context: Context, **kwargs):
     assert context.model_graph is not None, "no 'model_graph' in context"
-    params = load_str_params(param_names=[PARAM_AGN], **kwargs)
+    params = load_str_params(param_names=[PARAM_AGN, PARAM_FROM_EVT, PARAM_UNTIL_EVT], **kwargs)
 
     assert hasattr(context, "agent_max_speed"), "move_safely_isaac: no 'agent_max_speed' in context"
     assert (
