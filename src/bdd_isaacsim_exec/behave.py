@@ -7,9 +7,7 @@ from behave.model import Scenario
 from behave.runner import Context
 from rdflib import Graph, URIRef
 from rdf_utils.uri import try_expand_curie
-from rdf_utils.models.python import (
-    load_py_module_attr,
-)
+from rdf_utils.models.python import load_py_module_attr
 from bdd_dsl.behave import (
     PARAM_AGN,
     PARAM_EVT,
@@ -25,10 +23,9 @@ from bdd_dsl.behave import (
     parse_str_param,
 )
 from bdd_dsl.execution.common import ExecutionModel
+from bdd_dsl.models.urirefs import URI_SIM_PRED_HAS_CONFIG
 from bdd_dsl.models.user_story import UserStoryLoader
-from bdd_dsl.simulation.common import (
-    load_attr_path,
-)
+from bdd_dsl.simulation.common import load_attr_path
 
 
 DIST_THRESHOLD = 0.01
@@ -176,6 +173,21 @@ def _is_above(
     return bool(within_projection and is_above)
 
 
+def _is_located_by_ws_type(
+    ws_id: URIRef, obj_position: np.ndarray, ws_bounds: np.ndarray, margin: float = DIST_THRESHOLD
+) -> bool:
+    if "bin" in ws_id:
+        return _is_contained(obj_position=obj_position, ws_bounds=ws_bounds, margin=margin)
+
+    if "table" in ws_id:
+        return _is_above(obj_position=obj_position, ws_bounds=ws_bounds, margin=margin)
+
+    if "shelf" in ws_id:
+        return _is_contained(obj_position=obj_position, ws_bounds=ws_bounds, margin=margin)
+
+    raise RuntimeError(f"is_located: unrecognized ws type: {ws_id}")
+
+
 def is_located_at_isaac(context: Context, **kwargs):
     from bdd_isaacsim_exec.tasks import MeasurementType
 
@@ -184,19 +196,15 @@ def is_located_at_isaac(context: Context, **kwargs):
     assert context.model_graph is not None, "no 'model_graph' in context"
     ns_manager = context.model_graph.namespace_manager
 
-    assert (
-        context.current_scenario is not None
-    ), "no 'current_scenario' in context, expected a ScenarioVariantModel"
-
     _, obj_uris = parse_str_param(param_str=params[PARAM_OBJ], ns_manager=ns_manager)
     ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
     assert (
         len(obj_uris) > 0 and len(ws_uris) > 0
     ), f"is_located_at_isaac: expected at least 1 obj & ws, got obj={obj_uris}, ws={ws_uris}"
 
-    for uri in obj_uris:
-        assert isinstance(uri, URIRef), f"obj id not a URI: {uri}"
-        context.task.add_measurement(elem_id=uri, meas_type=MeasurementType.OBJ_POSE)
+    for obj_id in obj_uris:
+        assert isinstance(obj_id, URIRef), f"obj id not a URI: {obj_id}"
+        context.task.add_measurement(elem_id=obj_id, meas_type=MeasurementType.OBJ_POSE)
 
     for ws_id in ws_uris:
         assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
@@ -205,9 +213,7 @@ def is_located_at_isaac(context: Context, **kwargs):
     obs = context.world.get_observations()
 
     for obj_id in obj_uris:
-        assert (
-            obj_id in obs
-        ), f"is_located_at_isaac: no measurement for obj '{obj_id.n3(ns_manager)}'"
+        assert obj_id in obs, f"is_located: no measurement for obj '{obj_id.n3(ns_manager)}'"
         obj_position = obs[obj_id]["position"]
 
         is_located = True
@@ -218,37 +224,78 @@ def is_located_at_isaac(context: Context, **kwargs):
         all_bounds = []
         for ws_id in ws_uris:
             assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
-            assert (
-                ws_id in obs
-            ), f"is_located_at_isaac: no measurement for ws '{ws_id.n3(ns_manager)}'"
+            assert ws_id in obs, f"is_located: no measurement for ws '{ws_id.n3(ns_manager)}'"
             assert (
                 "bounds" in obs[ws_id]
             ), f"bounds not loaded for ws '{ws_id.n3(ns_manager)}, meas: {obs[ws_id]}'"
             ws_bounds = obs[ws_id]["bounds"]
             all_bounds.append(ws_bounds)
 
-            if "bin" in ws_id:
-                is_located_cur_ws = _is_contained(obj_position=obj_position, ws_bounds=ws_bounds)
-            elif "table" in ws_id:
-                is_located_cur_ws = _is_above(obj_position=obj_position, ws_bounds=ws_bounds)
-            elif "shelf" in ws_id:
-                is_located_cur_ws = _is_contained(obj_position=obj_position, ws_bounds=ws_bounds)
-            else:
-                raise RuntimeError(f"is_located: unrecognized ws type: {ws_id.n3(ns_manager)}")
+            is_located_cur_ws = _is_located_by_ws_type(
+                ws_id=ws_id, obj_position=obj_position, ws_bounds=ws_bounds
+            )
             if ws_param_type == ParamType.EXISTS_SET:
                 is_located |= is_located_cur_ws
             else:
                 is_located &= is_located_cur_ws
 
-        assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not in workspace(s), bounds: {all_bounds}"
+        assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not located at ws, bounds: {all_bounds}"
 
     evt_uri = try_expand_curie(curie_str=params[PARAM_EVT], ns_manager=ns_manager, quiet=False)
     assert evt_uri is not None, f"can't parse '{params[PARAM_EVT]}' as URI"
 
 
 def is_sorted_isaac(context: Context, **kwargs):
+    from bdd_isaacsim_exec.tasks import MeasurementType
+
     assert context.model_graph is not None, "no 'model_graph' in context"
-    _ = load_str_params(param_names=[PARAM_OBJ, PARAM_WS, PARAM_EVT], **kwargs)
+    assert (
+        context.current_scenario is not None
+    ), "no 'current_scenario' in context, expected a ScenarioVariantModel"
+    params = load_str_params(param_names=[PARAM_OBJ, PARAM_WS, PARAM_EVT], **kwargs)
+
+    assert context.model_graph is not None, "no 'model_graph' in context"
+    ns_manager = context.model_graph.namespace_manager
+
+    _, obj_uris = parse_str_param(param_str=params[PARAM_OBJ], ns_manager=ns_manager)
+    ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
+    assert (
+        len(obj_uris) > 0 and len(ws_uris) > 0
+    ), f"is_located_at_isaac: expected at least 1 obj & ws, got obj={obj_uris}, ws={ws_uris}"
+
+    for obj_id in obj_uris:
+        assert isinstance(obj_id, URIRef), f"obj id not a URI: {obj_id}"
+        context.task.add_measurement(elem_id=obj_id, meas_type=MeasurementType.OBJ_POSE)
+
+    for ws_id in ws_uris:
+        assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
+        context.task.add_measurement(elem_id=ws_id, meas_type=MeasurementType.WS_BOUNDS)
+
+    obs = context.world.get_observations()
+
+    obj_by_ws = {}
+    for ws_id in ws_uris:
+        assert ws_id in obs, f"is_sorted: no measurement for ws '{ws_id.n3(ns_manager)}'"
+        ws_bounds = obs[ws_id]["bounds"]
+
+        obj_by_ws[ws_id] = set()
+        for obj_id in obj_uris:
+            assert obj_id in obs, f"is_sorted: no measurement for obj '{obj_id.n3(ns_manager)}'"
+            obj_position = obs[obj_id]["position"]
+            if _is_located_by_ws_type(ws_id=ws_id, obj_position=obj_position, ws_bounds=ws_bounds):
+                obj_by_ws[ws_id].add(obj_id)
+
+    for ws_id, ws_obj_uris in obj_by_ws.items():
+        color = None
+        for obj_id in ws_obj_uris:
+            obj_model = context.task.get_obj_model(obj_id=obj_id)
+            model_configs = obj_model.get_attr(key=URI_SIM_PRED_HAS_CONFIG)
+            assert "color" in model_configs, f"obj '{obj_id.n3(ns_manager)}' has no color attr"
+            if color is not None and model_configs["color"] != color:
+                raise AssertionError(
+                    f"objs '{', '.join(x.n3(ns_manager) for x in ws_obj_uris)}' in ws '{ws_id.n3(ns_manager)}' not of same color"
+                )
+            color = model_configs["color"]
 
 
 def move_safely_isaac(context: Context, **kwargs):

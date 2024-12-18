@@ -63,8 +63,12 @@ class PickPlace(BaseTask):
         self._measurements = {}
         self._bb_cache = bounds_utils.create_bbox_cache()
 
+    def get_obj_model(self, obj_id: URIRef) -> ObjectModel:
+        assert obj_id in self._obj_models, f"Task {self.name}: no model for obj {obj_id}"
+        return self._obj_models[obj_id]
+
     def get_agn_model(self, agn_id: URIRef) -> AgentModel:
-        assert agn_id in self._agn_models, f"Task {self.name}: no modelfor agent {agn_id}"
+        assert agn_id in self._agn_models, f"Task {self.name}: no model for agent {agn_id}"
         return self._agn_models[agn_id]
 
     def get_agn_prim(self, agn_id: URIRef) -> Robot:
