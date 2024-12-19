@@ -41,9 +41,7 @@ class PickPlace(BaseTask):
     _obj_models: dict[URIRef, ObjectModel]
     _ws_models: dict[URIRef, WorkspaceModel]
     _agn_models: dict[URIRef, AgentModel]
-    _obj_id: URIRef
-    _agent_id: URIRef
-    _place_ws_ids: list[URIRef]
+    _task_params: dict
     _measurements: dict[URIRef, set[MeasurementType]]
 
     def __init__(
@@ -60,6 +58,11 @@ class PickPlace(BaseTask):
         self._obj_models = {}
         self._ws_models = {}
         self._agn_models = {}
+        self._task_params = {
+            "objects": {"value": {}, "modifiable": True},
+            "agents": {"value": {}, "modifiable": True},
+            "place_workspaces": {"value": {}, "modifiable": True},
+        }
         self._measurements = {}
         self._bb_cache = bounds_utils.create_bbox_cache()
 
@@ -153,8 +156,8 @@ class PickPlace(BaseTask):
         Extension of BaseTask.set_params().
 
         Parameters:
-        - obj_id_str: string rep of object URI to be picked and placed
-        - agent_id_str: string rep of agent URI to perform pick & place bhv
+        - obj_id_str: string rep of object URI(s) to be picked and placed
+        - agent_id_str: string rep of agent URI(s) to perform pick & place bhv
         - place_ws_id: URI of workspace(s) for placing.
         """
         agn_id_str = kwargs.get("agn_id_str", None)
@@ -164,25 +167,28 @@ class PickPlace(BaseTask):
         ws_id_str = kwargs.get("ws_id_str", None)
         assert ws_id_str is not None, f"Isaac Task '{self.name}': arg 'ws_id_str not specified'"
 
-        _, agn_uris = parse_str_param(param_str=agn_id_str, ns_manager=self._ns_manager)
+        param_type, agn_uris = parse_str_param(param_str=agn_id_str, ns_manager=self._ns_manager)
         assert (
-            len(agn_uris) == 1
-        ), f"Isaac Task '{self.name}': expected 1 agent URI, got: {agn_uris}"
-        assert isinstance(agn_uris[0], URIRef), f"unexpected agent URI: {agn_uris[0]}"
-        self._agn_id = agn_uris[0]
+            len(agn_uris) > 0
+        ), f"Isaac Task '{self.name}': expected at least 1 agent URI, got: {agn_uris}"
+        self._task_params["agents"]["value"]["param_type"] = param_type
+        self._task_params["agents"]["value"]["uris"] = agn_uris
 
-        _, obj_uris = parse_str_param(param_str=obj_id_str, ns_manager=self._ns_manager)
-        assert len(obj_uris) == 1, f"Isaac Task '{self.name}': expected 1 obj URI, got: {obj_uris}"
-        assert isinstance(obj_uris[0], URIRef), f"unexpected obj URI: {obj_uris[0]}"
-        self._obj_id = obj_uris[0]
+        param_type, obj_uris = parse_str_param(param_str=obj_id_str, ns_manager=self._ns_manager)
+        assert (
+            len(obj_uris) > 0
+        ), f"Isaac Task '{self.name}': expected at least 1 obj URI, got: {obj_uris}"
+        self._task_params["objects"]["value"]["param_type"] = param_type
+        self._task_params["objects"]["value"]["uris"] = obj_uris
 
-        _, place_ws_uris = parse_str_param(param_str=ws_id_str, ns_manager=self._ns_manager)
-        self._place_ws_ids = []
-        for uri in place_ws_uris:
-            assert isinstance(
-                uri, URIRef
-            ), f"Isaac Task '{self.name}': unexpected place ws URI: {uri}"
-            self._place_ws_ids.append(uri)
+        param_type, place_ws_uris = parse_str_param(
+            param_str=ws_id_str, ns_manager=self._ns_manager
+        )
+        assert (
+            len(place_ws_uris) > 0
+        ), f"Isaac Task '{self.name}': expected at least 1 place WS URI, got: {place_ws_uris}"
+        self._task_params["place_workspaces"]["value"]["param_type"] = param_type
+        self._task_params["place_workspaces"]["value"]["uris"] = place_ws_uris
 
         return
 
@@ -192,19 +198,21 @@ class PickPlace(BaseTask):
         Extension of BaseTask.get_params().
 
         Parameters:
-        - agn_id: URI of agent performing pick & place
-        - obj_id: URI of object to be picked and placed
-        - place_ws_id: URI of workspace where the picked object should be placed
+        - agents: dict of param type & URI(s) of agent(s) performing pick & place
+        - objects: dict of param type & URI(s) of object(s) to be picked and placed
+        - place_workspaces: dict of param type & URI(s) of workspace(s) where
+                            the picked object(s) should be placed
 
         Returns:
             dict: dictionary containing parameters' values and modifiable flag
         """
-        params = {}
-        params["agn_id"] = {"value": self._agn_id, "modifiable": True}
-        params["obj_id"] = {"value": self._obj_id, "modifiable": True}
-        params["place_ws_ids"] = {"value": self._place_ws_ids, "modifiable": True}
+        assert (
+            len(self._task_params["agents"]["value"]) > 0
+            and len(self._task_params["objects"]["value"]) > 0
+            and len(self._task_params["place_workspaces"]["value"]) > 0
+        ), f"Isaac Task '{self.name}': get_params called before set_params, params not populated"
 
-        return params
+        return self._task_params
 
     def get_obj_pose(self, obj_id: URIRef) -> tuple[np.ndarray, np.ndarray]:
         assert obj_id in self._obj_prims, f"Isaac Task '{self.name}': no prim for obj '{obj_id}'"
