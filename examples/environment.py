@@ -66,7 +66,7 @@ def after_feature(context: Context, feature: Feature):
 
 
 def before_scenario(context: Context, scenario: Scenario):
-    context.log_data[scenario.name] = {}
+    context.log_data[scenario.name] = {"clauses": {}, "clause_order": []}
     context.scenario_start_time = time.process_time()
     before_scenario_isaac(context, scenario)
 
@@ -78,11 +78,13 @@ def after_scenario(context: Context, scenario: Scenario):
 
 
 def before_step(context: Context, step: Step):
-    context.log_data[context.scenario.name][step.name] = {}
+    context.log_data[context.scenario.name]["clauses"][step.name] = {"keyword": step.keyword}
+    context.log_data[context.scenario.name]["clause_order"].append(step.name)
     step_start = time.process_time()
     context.step_start = step_start
 
 
 def after_step(context: Context, step: Step):
     step_exec_time = time.process_time() - context.step_start
-    context.log_data[context.scenario.name][step.name]["exec_time"] = step_exec_time
+    context.log_data[context.scenario.name]["clauses"][step.name]["exec_time"] = step_exec_time
+    context.log_data[context.scenario.name]["clauses"][step.name]["status"] = step.status.name
