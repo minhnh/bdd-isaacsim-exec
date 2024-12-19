@@ -49,12 +49,17 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
         return self._fsm.is_done()
 
     def reset(self, context: Context, **kwargs: Any) -> None:
-        task_params = context.task.get_params()
-        self.agn_id = task_params["agn_id"]["value"]
-        self.obj_id = task_params["obj_id"]["value"]
-        place_ws_ids = task_params["place_ws_ids"]["value"]
+        self.agn_id = kwargs.get("agn_id")
+        assert isinstance(self.agn_id, URIRef), f"unexpected 'agn_id' arg: {self.agn_id}"
+
+        self.obj_id = kwargs.get("obj_id")
+        assert isinstance(self.obj_id, URIRef), f"unexpected 'obj_id' arg: {self.obj_id}"
+
+        place_ws_ids = kwargs.get("place_ws_ids")
+        assert isinstance(place_ws_ids, list), f"unexpected 'place_ws_ids' arg: {place_ws_ids}"
         rand_ws_index = np.random.randint(len(place_ws_ids))
         self.ws_id = place_ws_ids[rand_ws_index]
+        assert isinstance(self.ws_id, URIRef), f"unexpected ws URI: {self.ws_id}"
 
         # add measurements required by behaviour
         context.task.add_measurement(elem_id=self.obj_id, meas_type=MeasurementType.OBJ_POSE)

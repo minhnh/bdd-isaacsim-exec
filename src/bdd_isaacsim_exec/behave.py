@@ -22,7 +22,7 @@ from bdd_dsl.behave import (
     load_ws_models_from_table,
     parse_str_param,
 )
-from bdd_dsl.execution.common import ExecutionModel
+from bdd_dsl.execution.common import Behaviour, ExecutionModel
 from bdd_dsl.models.urirefs import URI_SIM_PRED_HAS_CONFIG
 from bdd_dsl.models.user_story import UserStoryLoader
 from bdd_dsl.simulation.common import load_attr_path
@@ -258,7 +258,7 @@ def is_sorted_isaac(context: Context, **kwargs):
     ns_manager = context.model_graph.namespace_manager
 
     _, obj_uris = parse_str_param(param_str=params[PARAM_OBJ], ns_manager=ns_manager)
-    ws_param_type, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
+    _, ws_uris = parse_str_param(param_str=params[PARAM_WS], ns_manager=ns_manager)
     assert (
         len(obj_uris) > 0 and len(ws_uris) > 0
     ), f"is_located_at_isaac: expected at least 1 obj & ws, got obj={obj_uris}, ws={ws_uris}"
@@ -320,33 +320,43 @@ def behaviour_isaac(context: Context, **kwargs):
 
     behaviour_model = getattr(context, "behaviour_model", None)
 
+    graph = getattr(context, "model_graph", None)
+    assert isinstance(graph, Graph), f"no 'model_graph' of type rdflib.Graph in context: {graph}"
+
     if behaviour_model is None:
         exec_model = getattr(context, "execution_model", None)
         assert isinstance(
             exec_model, ExecutionModel
         ), f"no valid 'execution_model' added to the context: {exec_model}"
 
-        model_graph = getattr(context, "model_graph", None)
-        assert isinstance(
-            model_graph, Graph
-        ), f"no 'model_graph' of type rdflib.Graph in context: {model_graph}"
-
         behaviour_model = exec_model.load_behaviour_impl(
             context=context,
-            ns_manager=model_graph.namespace_manager,
+            ns_manager=graph.namespace_manager,
         )
         context.behaviour_model = behaviour_model
+
+    task_params = context.task.get_params()
+
+    agn_ids = task_params["agents"]["value"]["uris"]
+    assert len(agn_ids) == 1 and isinstance(agn_ids[0], URIRef), f"unexpected agn param: {agn_ids}"
+
+    obj_ids = task_params["objects"]["value"]["uris"]
+    assert len(obj_ids) == 1 and isinstance(obj_ids[0], URIRef), f"unexpected obj param: {obj_ids}"
+
+    place_ws_ids = task_params["place_workspaces"]["value"]["uris"]
+    for uri in place_ws_ids:
+        assert isinstance(uri, URIRef), f"unexpected ws param: {uri}"
 
     render = not context.headless
 
     bhv = behaviour_model.behaviour
-    assert bhv is not None, f"behaviour not processed for {behaviour_model.id}"
-    bhv.reset(context=context)
+    assert isinstance(
+        bhv, Behaviour
+    ), f"bhv impl for '{behaviour_model.id.n3(graph.namespace_manager)}' not instance of '{Behaviour}': {bhv}"
+    bhv.reset(context=context, agn_id=agn_ids[0], obj_id=obj_ids[0], place_ws_ids=place_ws_ids)
 
     # Move safely clause requires assertion over a time horizon
-    _, agn_uris = parse_str_param(
-        param_str=params[PARAM_AGN], ns_manager=context.model_graph.namespace_manager
-    )
+    _, agn_uris = parse_str_param(param_str=params[PARAM_AGN], ns_manager=graph.namespace_manager)
     assert len(agn_uris) == 1 and isinstance(
         agn_uris[0], URIRef
     ), f"unexpected agn params: {agn_uris}"
