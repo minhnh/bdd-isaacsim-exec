@@ -70,6 +70,10 @@ class PickPlace(BaseTask):
         assert obj_id in self._obj_models, f"Task {self.name}: no model for obj {obj_id}"
         return self._obj_models[obj_id]
 
+    def get_ws_model(self, ws_id: URIRef) -> WorkspaceModel:
+        assert ws_id in self._ws_models, f"Task {self.name}: no model for ws {ws_id}"
+        return self._ws_models[ws_id]
+
     def get_agn_model(self, agn_id: URIRef) -> AgentModel:
         assert agn_id in self._agn_models, f"Task {self.name}: no model for agent {agn_id}"
         return self._agn_models[agn_id]

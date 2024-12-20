@@ -299,13 +299,32 @@ def is_sorted_isaac(context: Context, **kwargs):
 
 
 def move_safely_isaac(context: Context, **kwargs):
-    assert context.model_graph is not None, "no 'model_graph' in context"
     params = load_str_params(param_names=[PARAM_AGN, PARAM_FROM_EVT, PARAM_UNTIL_EVT], **kwargs)
 
-    assert hasattr(context, "agent_max_speed"), "move_safely_isaac: no 'agent_max_speed' in context"
-    assert (
-        context.agent_max_speed < SPEED_THRESHOLD
-    ), f"agent '{params[PARAM_AGN]}' moves EE too fast: {context.agent_max_speed:.5f} > {SPEED_THRESHOLD:.5f}"
+    graph = getattr(context, "model_graph", None)
+    assert isinstance(graph, Graph), f"no 'model_graph' of type rdflib.Graph in context: {graph}"
+
+    assert hasattr(
+        context, "bhv_observations"
+    ), "move_safely_isaac: no 'bhv_observations' in context"
+
+    # eval speed with a moving average filter
+    agn_speeds = context.bhv_observations["agn_speeds"]
+    filter_horizon = 5
+    for i in range(len(agn_speeds) - filter_horizon):
+        filtered_speed = np.mean(agn_speeds[i : i + filter_horizon])
+        assert (
+            filtered_speed < SPEED_THRESHOLD
+        ), f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {SPEED_THRESHOLD:.5f} m/s"
+
+    # eval sum of displacements for place workspaces
+    ws_displacement_sum = context.bhv_observations["ws_displacement_sum"]
+    ws_disp_threshold = DIST_THRESHOLD * 5
+    for ws_id, displacement_sum in ws_displacement_sum.items():
+        assert displacement_sum < ws_disp_threshold, (
+            f"ws '{ws_id.n3(graph.namespace_manager)}' was moved too much:"
+            + f" displacement_sum={displacement_sum:.5f} m > {ws_disp_threshold:.5f} m"
+        )
 
 
 def behaviour_isaac(context: Context, **kwargs):
@@ -356,13 +375,21 @@ def behaviour_isaac(context: Context, **kwargs):
     bhv.reset(context=context, agn_id=agn_ids[0], obj_id=obj_ids[0], place_ws_ids=place_ws_ids)
 
     # Move safely clause requires assertion over a time horizon
-    _, agn_uris = parse_str_param(param_str=params[PARAM_AGN], ns_manager=graph.namespace_manager)
-    assert len(agn_uris) == 1 and isinstance(
-        agn_uris[0], URIRef
-    ), f"unexpected agn params: {agn_uris}"
-    context.task.add_measurement(elem_id=agn_uris[0], meas_type=MeasurementType.AGN_EE_LINEAR_VEL)
+    #  safety metric 1 -- end-effector speed
+    context.task.add_measurement(elem_id=agn_ids[0], meas_type=MeasurementType.AGN_EE_LINEAR_VEL)
     agn_speeds = []
-    agn_max_speed = -1
+    #  safety metric 2 -- bins culmulative displacement
+    ws_displacement_sums = {}
+    ws_obj_map = {}
+    ws_previous_positions = {}
+    for ws_id in place_ws_ids:
+        context.task.add_measurement(elem_id=ws_id, meas_type=MeasurementType.WS_POSE)
+        ws_displacement_sums[ws_id] = 0
+        ws_model = context.task.get_ws_model(ws_id=ws_id)
+        assert len(ws_model.objects) > 0, f"no obj linked to ws '{ws_id}'"
+        for obj_id in ws_model.objects:
+            ws_obj_map[ws_id] = obj_id
+            break  # only first obj
 
     time_step_sec = context.time_step_sec
     now = time.process_time()
@@ -374,13 +401,17 @@ def behaviour_isaac(context: Context, **kwargs):
         context.world.step(render=render)
         # observations
         obs = context.world.get_observations()
-        agn_speed = np.linalg.norm(obs[agn_uris[0]]["ee_linear_velocities"])
-        if agn_speed > agn_max_speed:
-            agn_max_speed = agn_speed
-        agn_speeds.append(agn_speed)
-        context.observations = obs
         # behaviour step
-        bhv.step(context=context)
+        bhv.step(context=context, observations=obs)
+        # metrics
+        agn_speed = np.linalg.norm(obs[agn_ids[0]]["ee_linear_velocities"])
+        agn_speeds.append(agn_speed)
+        for ws_id in place_ws_ids:
+            ws_position = obs[ws_obj_map[ws_id]]["position"]
+            if ws_id in ws_previous_positions:
+                ws_displacement = np.linalg.norm(ws_position - ws_previous_positions[ws_id])
+                ws_displacement_sums[ws_id] += ws_displacement
+            ws_previous_positions[ws_id] = ws_position
         # real time check
         exec_times.append(time.process_time() - now)
         while True:
@@ -391,7 +422,10 @@ def behaviour_isaac(context: Context, **kwargs):
         while loop_end < now:
             loop_end += time_step_sec
 
-    context.agent_max_speed = agn_max_speed
+    context.bhv_observations = {
+        "agn_speeds": agn_speeds,
+        "ws_displacement_sum": ws_displacement_sums,
+    }
 
     print(
         "\n\n*** Agent speed statistics: "

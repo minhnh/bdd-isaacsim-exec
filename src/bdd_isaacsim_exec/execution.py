@@ -123,7 +123,8 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             and self._art_ctrl is not None
             and self._vis_target is not None
         ), f"Behaviour '{self.id}': params are None, step() expects reset() to be called first"
-        obs = context.observations
+        obs = kwargs.get("observations")
+        assert obs is not None, f"{self.__class__}.step missing 'observations' arg"
         assert self.obj_id in obs, f"target obj '{self.obj_id}' not in observations"
         assert self.ws_id in obs, f"target ws '{self.ws_id}' not in observations"
         assert self.agn_id in obs, f"target agn '{self.agn_id}' not in observations"
