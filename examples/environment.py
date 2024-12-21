@@ -80,6 +80,7 @@ def after_scenario(context: Context, scenario: Scenario):
 def before_step(context: Context, step: Step):
     context.log_data[context.scenario.name]["clauses"][step.name] = {"keyword": step.keyword}
     context.log_data[context.scenario.name]["clause_order"].append(step.name)
+    context.step_debug_info = {}
     step_start = time.process_time()
     context.step_start = step_start
 
@@ -88,3 +89,6 @@ def after_step(context: Context, step: Step):
     step_exec_time = time.process_time() - context.step_start
     context.log_data[context.scenario.name]["clauses"][step.name]["exec_time"] = step_exec_time
     context.log_data[context.scenario.name]["clauses"][step.name]["status"] = step.status.name
+    context.log_data[context.scenario.name]["clauses"][step.name]["debug_info"] = (
+        context.step_debug_info
+    )

@@ -100,7 +100,6 @@ def before_scenario_isaac(context: Context, scenario: Scenario):
     task = load_isaacsim_task(world=context.world, graph=model_graph, scr_var=scenario_var_model)
     print(f"**** Loaded Isaac Sim Task {task.name}")
     context.task = task
-    # context.behaviour.reset()
 
 
 def after_scenario_isaac(context: Context):
@@ -221,7 +220,7 @@ def is_located_at_isaac(context: Context, **kwargs):
             # Or comparision initialized to false
             is_located = False
 
-        all_bounds = []
+        all_bounds = {}
         for ws_id in ws_uris:
             assert isinstance(ws_id, URIRef), f"ws id not a URI: {ws_id}"
             assert ws_id in obs, f"is_located: no measurement for ws '{ws_id.n3(ns_manager)}'"
@@ -229,7 +228,7 @@ def is_located_at_isaac(context: Context, **kwargs):
                 "bounds" in obs[ws_id]
             ), f"bounds not loaded for ws '{ws_id.n3(ns_manager)}, meas: {obs[ws_id]}'"
             ws_bounds = obs[ws_id]["bounds"]
-            all_bounds.append(ws_bounds)
+            all_bounds[ws_id.n3(ns_manager)] = ws_bounds
 
             is_located_cur_ws = _is_located_by_ws_type(
                 ws_id=ws_id, obj_position=obj_position, ws_bounds=ws_bounds
@@ -239,7 +238,18 @@ def is_located_at_isaac(context: Context, **kwargs):
             else:
                 is_located &= is_located_cur_ws
 
-        assert is_located, f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not located at ws, bounds: {all_bounds}"
+        if is_located:
+            continue
+
+        context.step_debug_info["failure_causes"] = ["not_located"]
+        context.step_debug_info["obj_id"] = obj_id.n3(ns_manager)
+        context.step_debug_info["obj_position"] = obj_position.tolist()
+        context.step_debug_info["ws_bounds"] = {}
+        for ws_id in all_bounds:
+            context.step_debug_info["ws_bounds"][ws_id] = all_bounds[ws_id].tolist()
+        raise AssertionError(
+            f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not located at {params[PARAM_WS]}, bounds:\n{all_bounds}"
+        )
 
     evt_uri = try_expand_curie(curie_str=params[PARAM_EVT], ns_manager=ns_manager, quiet=False)
     assert evt_uri is not None, f"can't parse '{params[PARAM_EVT]}' as URI"
@@ -273,29 +283,57 @@ def is_sorted_isaac(context: Context, **kwargs):
 
     obs = context.world.get_observations()
 
+    obj_colors = {}
     obj_by_ws = {}
     for ws_id in ws_uris:
         assert ws_id in obs, f"is_sorted: no measurement for ws '{ws_id.n3(ns_manager)}'"
         ws_bounds = obs[ws_id]["bounds"]
 
-        obj_by_ws[ws_id] = set()
+        obj_by_ws[ws_id] = []
         for obj_id in obj_uris:
             assert obj_id in obs, f"is_sorted: no measurement for obj '{obj_id.n3(ns_manager)}'"
+            # location
             obj_position = obs[obj_id]["position"]
             if _is_located_by_ws_type(ws_id=ws_id, obj_position=obj_position, ws_bounds=ws_bounds):
-                obj_by_ws[ws_id].add(obj_id)
-
-    for ws_id, ws_obj_uris in obj_by_ws.items():
-        color = None
-        for obj_id in ws_obj_uris:
+                obj_by_ws[ws_id].append(obj_id)
+            # color
+            if obj_id in obj_colors:
+                continue
             obj_model = context.task.get_obj_model(obj_id=obj_id)
             model_configs = obj_model.get_attr(key=URI_SIM_PRED_HAS_CONFIG)
             assert "color" in model_configs, f"obj '{obj_id.n3(ns_manager)}' has no color attr"
-            if color is not None and model_configs["color"] != color:
-                raise AssertionError(
-                    f"objs '{', '.join(x.n3(ns_manager) for x in ws_obj_uris)}' in ws '{ws_id.n3(ns_manager)}' not of same color"
-                )
-            color = model_configs["color"]
+            obj_colors[obj_id] = model_configs["color"]
+
+    sorted_correct = True
+    wrongly_sorted_ws = None
+    for ws_id, ws_obj_uris in obj_by_ws.items():
+        color = None
+        for obj_id in ws_obj_uris:
+            if color is None:
+                color = obj_colors[obj_id]
+                continue
+
+            if obj_colors[obj_id] == color:
+                continue
+
+            sorted_correct = False
+            wrongly_sorted_ws = ws_id
+            break
+
+    if sorted_correct:
+        return
+
+    assert isinstance(
+        wrongly_sorted_ws, URIRef
+    ), f"unexpected val for wrongly sorted WS: {wrongly_sorted_ws}"
+    context.step_debug_info["failure_causes"] = ["wrong_color"]
+    context.step_debug_info["obj_by_ws"] = obj_by_ws
+    context.step_debug_info["obj_colors"] = obj_colors
+    context.step_debug_info["wrongly_sorted_ws"] = wrongly_sorted_ws
+    raise AssertionError(
+        f"objs '{', '.join(x.n3(ns_manager) for x in obj_by_ws[wrongly_sorted_ws])}'"
+        + f" in ws '{wrongly_sorted_ws.n3(ns_manager)}' not of same color"
+    )
 
 
 def move_safely_isaac(context: Context, **kwargs):
@@ -308,23 +346,54 @@ def move_safely_isaac(context: Context, **kwargs):
         context, "bhv_observations"
     ), "move_safely_isaac: no 'bhv_observations' in context"
 
+    move_too_fast = False
+    ws_moved = False
+    debug_info = {}
+    debug_info["failure_causes"] = []
+    debug_msgs = []
+
     # eval speed with a moving average filter
     agn_speeds = context.bhv_observations["agn_speeds"]
-    filter_horizon = 5
+    filter_horizon = 3
     for i in range(len(agn_speeds) - filter_horizon):
         filtered_speed = np.mean(agn_speeds[i : i + filter_horizon])
-        assert (
-            filtered_speed < SPEED_THRESHOLD
-        ), f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {SPEED_THRESHOLD:.5f} m/s"
+        if filtered_speed < SPEED_THRESHOLD:
+            continue
+
+        move_too_fast = True
+        debug_info["failure_causes"].append("fast_ee")
+        debug_info["agn_id"] = params[PARAM_AGN]
+        debug_info["ee_speed"] = float(filtered_speed)
+        debug_msgs.append(
+            f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {SPEED_THRESHOLD:.5f} m/s"
+        )
+        break
 
     # eval sum of displacements for place workspaces
     ws_displacement_sum = context.bhv_observations["ws_displacement_sum"]
     ws_disp_threshold = DIST_THRESHOLD * 5
     for ws_id, displacement_sum in ws_displacement_sum.items():
-        assert displacement_sum < ws_disp_threshold, (
+        if displacement_sum < ws_disp_threshold:
+            continue
+
+        ws_moved = True
+        debug_info["failure_causes"].append("ws_moved")
+        debug_info["ws_id"] = ws_id.n3(graph.namespace_manager)
+        debug_info["displacement_sum"] = displacement_sum
+        debug_msgs.append(
             f"ws '{ws_id.n3(graph.namespace_manager)}' was moved too much:"
             + f" displacement_sum={displacement_sum:.5f} m > {ws_disp_threshold:.5f} m"
         )
+        break
+
+    # return if all is fine or update debug_info and raise AssertionError
+    if (not move_too_fast) and (not ws_moved):
+        return
+
+    context.step_debug_info |= debug_info
+    raise AssertionError(
+        f"'{params[PARAM_AGN]}' did not move safely. Reason(s):\n- " + "\n- ".join(debug_msgs)
+    )
 
 
 def behaviour_isaac(context: Context, **kwargs):
