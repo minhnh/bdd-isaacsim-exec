@@ -241,12 +241,12 @@ def is_located_at_isaac(context: Context, **kwargs):
         if is_located:
             continue
 
-        context.step_debug_info["failure_causes"] = ["not_located"]
-        context.step_debug_info["obj_id"] = obj_id.n3(ns_manager)
-        context.step_debug_info["obj_position"] = obj_position.tolist()
-        context.step_debug_info["ws_bounds"] = {}
+        context.step_debug_info["fail_info"]["causes"] = ["not_located"]
+        context.step_debug_info["fail_info"]["obj_id"] = obj_id.n3(ns_manager)
+        context.step_debug_info["fail_info"]["obj_position"] = obj_position.tolist()
+        context.step_debug_info["fail_info"]["ws_bounds"] = {}
         for ws_id in all_bounds:
-            context.step_debug_info["ws_bounds"][ws_id] = all_bounds[ws_id].tolist()
+            context.step_debug_info["fail_info"]["ws_bounds"][ws_id] = all_bounds[ws_id].tolist()
         raise AssertionError(
             f"obj '{obj_id.n3(ns_manager)}' (pos={obj_position}) not located at {params[PARAM_WS]}, bounds:\n{all_bounds}"
         )
@@ -326,10 +326,10 @@ def is_sorted_isaac(context: Context, **kwargs):
     assert isinstance(
         wrongly_sorted_ws, URIRef
     ), f"unexpected val for wrongly sorted WS: {wrongly_sorted_ws}"
-    context.step_debug_info["failure_causes"] = ["wrong_color"]
-    context.step_debug_info["obj_by_ws"] = obj_by_ws
-    context.step_debug_info["obj_colors"] = obj_colors
-    context.step_debug_info["wrongly_sorted_ws"] = wrongly_sorted_ws
+    context.step_debug_info["fail_info"]["causes"] = ["wrong_color"]
+    context.step_debug_info["fail_info"]["obj_by_ws"] = obj_by_ws
+    context.step_debug_info["fail_info"]["obj_colors"] = obj_colors
+    context.step_debug_info["fail_info"]["wrongly_sorted_ws"] = wrongly_sorted_ws
     raise AssertionError(
         f"objs '{', '.join(x.n3(ns_manager) for x in obj_by_ws[wrongly_sorted_ws])}'"
         + f" in ws '{wrongly_sorted_ws.n3(ns_manager)}' not of same color"
@@ -349,7 +349,7 @@ def move_safely_isaac(context: Context, **kwargs):
     move_too_fast = False
     ws_moved = False
     debug_info = {}
-    debug_info["failure_causes"] = []
+    debug_info["causes"] = []
     debug_msgs = []
 
     # eval speed with a moving average filter
@@ -361,7 +361,7 @@ def move_safely_isaac(context: Context, **kwargs):
             continue
 
         move_too_fast = True
-        debug_info["failure_causes"].append("fast_ee")
+        debug_info["causes"].append("fast_ee")
         debug_info["agn_id"] = params[PARAM_AGN]
         debug_info["ee_speed"] = float(filtered_speed)
         debug_msgs.append(
@@ -377,7 +377,7 @@ def move_safely_isaac(context: Context, **kwargs):
             continue
 
         ws_moved = True
-        debug_info["failure_causes"].append("ws_moved")
+        debug_info["causes"].append("ws_moved")
         debug_info["ws_id"] = ws_id.n3(graph.namespace_manager)
         debug_info["displacement_sum"] = displacement_sum
         debug_msgs.append(
@@ -390,7 +390,7 @@ def move_safely_isaac(context: Context, **kwargs):
     if (not move_too_fast) and (not ws_moved):
         return
 
-    context.step_debug_info |= debug_info
+    context.step_debug_info["fail_info"] |= debug_info
     raise AssertionError(
         f"'{params[PARAM_AGN]}' did not move safely. Reason(s):\n- " + "\n- ".join(debug_msgs)
     )
