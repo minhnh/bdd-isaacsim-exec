@@ -87,7 +87,7 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
             self._fsm = URPickPlaceCtrl(
                 name="pick_place_controller", gripper=agn_prim.gripper, robot_articulation=agn_prim
             )
-            self._gripper_offset = np.array([0, 0.0, 0.025])
+            self._gripper_offset = np.array([0, 0.0, 0.02])
         else:
             raise RuntimeError(
                 f"Behaviour '{self.id}': unrecognized agent types: {agn_model.types}"
