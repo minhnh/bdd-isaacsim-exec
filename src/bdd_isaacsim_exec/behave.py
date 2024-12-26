@@ -496,10 +496,19 @@ def behaviour_isaac(context: Context, **kwargs):
         "ws_displacement_sum": ws_displacement_sums,
     }
 
+    speed_mean = np.mean(agn_speeds)
+    speed_std = np.std(agn_speeds)
+    speed_min = np.min(agn_speeds)
+    speed_max = np.max(agn_speeds)
+    context.step_debug_info["ee_speed"] = {}
+    context.step_debug_info["ee_speed"]["mean"] = speed_mean
+    context.step_debug_info["ee_speed"]["std"] = speed_std
+    context.step_debug_info["ee_speed"]["min"] = speed_min
+    context.step_debug_info["ee_speed"]["max"] = speed_max
     print(
         "\n\n*** Agent speed statistics: "
-        + f" mean={np.mean(agn_speeds):.5f}, std={np.std(agn_speeds):.5f},"
-        + f" min={np.min(agn_speeds):.5f}, max={np.max(agn_speeds):.5f}"
+        + f" mean={speed_mean:.5f}, std={speed_std:.5f},"
+        + f" min={speed_min:.5f}, max={speed_max:.5f}"
     )
     print(
         f"\n\n*** Execution time statistics (secs) for '{len(exec_times)}' loops:"
