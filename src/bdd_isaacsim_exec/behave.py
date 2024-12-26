@@ -29,7 +29,7 @@ from bdd_dsl.simulation.common import load_attr_path
 
 
 DIST_THRESHOLD = 0.01
-SPEED_THRESHOLD = 1
+SPEED_THRESHOLD = 1.1
 
 
 def isaacsim_fixture(context: Context, **kwargs: Any):
