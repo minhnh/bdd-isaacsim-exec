@@ -501,10 +501,10 @@ def behaviour_isaac(context: Context, **kwargs):
     speed_min = np.min(agn_speeds)
     speed_max = np.max(agn_speeds)
     context.step_debug_info["ee_speed"] = {}
-    context.step_debug_info["ee_speed"]["mean"] = speed_mean
-    context.step_debug_info["ee_speed"]["std"] = speed_std
-    context.step_debug_info["ee_speed"]["min"] = speed_min
-    context.step_debug_info["ee_speed"]["max"] = speed_max
+    context.step_debug_info["ee_speed"]["mean"] = float(speed_mean)
+    context.step_debug_info["ee_speed"]["std"] = float(speed_std)
+    context.step_debug_info["ee_speed"]["min"] = float(speed_min)
+    context.step_debug_info["ee_speed"]["max"] = float(speed_max)
     print(
         "\n\n*** Agent speed statistics: "
         + f" mean={speed_mean:.5f}, std={speed_std:.5f},"
