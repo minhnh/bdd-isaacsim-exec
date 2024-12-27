@@ -26,9 +26,16 @@ from bdd_dsl.execution.common import Behaviour, ExecutionModel
 from bdd_dsl.models.urirefs import URI_SIM_PRED_HAS_CONFIG
 from bdd_dsl.models.user_story import UserStoryLoader
 from bdd_dsl.simulation.common import load_attr_path
+from bdd_isaacsim_exec.uri import URI_FRANKA_PANDA, URI_UR_UR10
 
 
 DIST_THRESHOLD = 0.01
+UR10_MAX_EE_SPEED_MEAN = 0.89788
+UR10_MAX_EE_SPEED_STD = 0.17760
+UR10_SPEED_THRESHOLD = UR10_MAX_EE_SPEED_MEAN + 2 * UR10_MAX_EE_SPEED_STD
+PANDA_MAX_EE_SPEED_MEAN = 0.46593
+PANDA_MAX_EE_SPEED_STD = 0.09299
+PANDA_SPEED_THRESHOLD = PANDA_MAX_EE_SPEED_MEAN + 2 * PANDA_MAX_EE_SPEED_STD
 SPEED_THRESHOLD = 1.1
 
 
@@ -342,6 +349,18 @@ def move_safely_isaac(context: Context, **kwargs):
     graph = getattr(context, "model_graph", None)
     assert isinstance(graph, Graph), f"no 'model_graph' of type rdflib.Graph in context: {graph}"
 
+    # agent dependent speed threshold
+    task_params = context.task.get_params()
+    agn_ids = task_params["agents"]["value"]["uris"]
+    assert len(agn_ids) == 1 and isinstance(agn_ids[0], URIRef), f"unexpected agn param: {agn_ids}"
+    agn_model = context.task.get_agn_model(agn_id=agn_ids[0])
+    if URI_FRANKA_PANDA in agn_model.types:
+        threshold = PANDA_SPEED_THRESHOLD
+    elif URI_UR_UR10 in agn_model.types:
+        threshold = UR10_SPEED_THRESHOLD
+    else:
+        raise RuntimeError(f"unexpected agn types: {agn_model.types}")
+
     assert hasattr(
         context, "bhv_observations"
     ), "move_safely_isaac: no 'bhv_observations' in context"
@@ -357,7 +376,7 @@ def move_safely_isaac(context: Context, **kwargs):
     filter_horizon = 3
     for i in range(len(agn_speeds) - filter_horizon):
         filtered_speed = np.mean(agn_speeds[i : i + filter_horizon])
-        if filtered_speed < SPEED_THRESHOLD:
+        if filtered_speed < threshold:
             continue
 
         move_too_fast = True
@@ -365,7 +384,7 @@ def move_safely_isaac(context: Context, **kwargs):
         debug_info["agn_id"] = params[PARAM_AGN]
         debug_info["ee_speed"] = float(filtered_speed)
         debug_msgs.append(
-            f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {SPEED_THRESHOLD:.5f} m/s"
+            f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {threshold:.5f} m/s"
         )
         break
 
@@ -496,20 +515,23 @@ def behaviour_isaac(context: Context, **kwargs):
         "ws_displacement_sum": ws_displacement_sums,
     }
 
-    speed_mean = np.mean(agn_speeds)
-    speed_std = np.std(agn_speeds)
-    speed_min = np.min(agn_speeds)
-    speed_max = np.max(agn_speeds)
-    context.step_debug_info["ee_speed"] = {}
-    context.step_debug_info["ee_speed"]["mean"] = float(speed_mean)
-    context.step_debug_info["ee_speed"]["std"] = float(speed_std)
-    context.step_debug_info["ee_speed"]["min"] = float(speed_min)
-    context.step_debug_info["ee_speed"]["max"] = float(speed_max)
-    print(
-        "\n\n*** Agent speed statistics: "
-        + f" mean={speed_mean:.5f}, std={speed_std:.5f},"
-        + f" min={speed_min:.5f}, max={speed_max:.5f}"
-    )
+    if len(agn_speeds) > 0:
+        speed_mean = np.mean(agn_speeds)
+        speed_std = np.std(agn_speeds)
+        speed_min = np.min(agn_speeds)
+        speed_max = np.max(agn_speeds)
+        context.step_debug_info["ee_speed"] = {}
+        context.step_debug_info["ee_speed"]["mean"] = float(speed_mean)
+        context.step_debug_info["ee_speed"]["std"] = float(speed_std)
+        context.step_debug_info["ee_speed"]["min"] = float(speed_min)
+        context.step_debug_info["ee_speed"]["max"] = float(speed_max)
+        print(
+            "\n\n*** Agent speed statistics: "
+            + f" mean={speed_mean:.5f}, std={speed_std:.5f},"
+            + f" min={speed_min:.5f}, max={speed_max:.5f}"
+        )
+    else:
+        print("\n*** WARNING: no agent EE speed recorded\n")
     print(
         f"\n\n*** Execution time statistics (secs) for '{len(exec_times)}' loops:"
         + f" mean={np.mean(exec_times):.5f}, std={np.std(exec_times):.5f},"

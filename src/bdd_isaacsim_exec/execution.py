@@ -2,21 +2,16 @@
 from typing import Any, Optional
 import numpy as np
 from behave.runner import Context
-from rdflib import Namespace, URIRef
+from rdflib import URIRef
 from rdflib.namespace import NamespaceManager
 from bdd_dsl.execution.common import Behaviour
-
 from bdd_isaacsim_exec.tasks import MeasurementType
+from bdd_isaacsim_exec.uri import URI_FRANKA_PANDA, URI_UR_UR10
+
 from omni.isaac.manipulators.controllers import PickPlaceController as GenPickPlaceController
 from omni.isaac.core.controllers.articulation_controller import ArticulationController
 from omni.isaac.core.objects import VisualCone
 from omni.isaac.core.utils.string import find_unique_string_name
-
-
-NS_FRANKA = Namespace("https://www.franka.de/")
-URI_M_AGN_TYPE_PANDA = NS_FRANKA["emika-panda"]
-NS_UR = Namespace("https://www.universal-robots.com/products/")
-URI_M_AGN_TYPE_UR10 = NS_UR["ur10-robot"]
 
 
 class IsaacsimPickPlaceBehaviour(Behaviour):
@@ -72,14 +67,14 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
         self._art_ctrl = agn_prim.get_articulation_controller()
 
         agn_model = context.task.get_agn_model(self.agn_id)
-        if URI_M_AGN_TYPE_PANDA in agn_model.types:
+        if URI_FRANKA_PANDA in agn_model.types:
             from omni.isaac.franka.controllers import PickPlaceController as PandaPickPlaceCtrl
 
             self._fsm = PandaPickPlaceCtrl(
                 name="pick_place_controller", gripper=agn_prim.gripper, robot_articulation=agn_prim
             )
             self._gripper_offset = np.array([0, 0.005, 0.0])
-        elif URI_M_AGN_TYPE_UR10 in agn_model.types:
+        elif URI_UR_UR10 in agn_model.types:
             from omni.isaac.universal_robots.controllers import (
                 PickPlaceController as URPickPlaceCtrl,
             )
@@ -144,7 +139,7 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
 
         actions = self._fsm.forward(
             picking_position=grasp_position,
-            placing_position=obs[ws_obj_id]["position"],
+            placing_position=obs[ws_obj_id]["position"] + [0, 0, 0.05],
             current_joint_positions=obs[self.agn_id]["joint_positions"],
             end_effector_offset=self._gripper_offset,
         )
