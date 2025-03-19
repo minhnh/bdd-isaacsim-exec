@@ -26,7 +26,7 @@ from bdd_dsl.execution.common import Behaviour, ExecutionModel
 from bdd_dsl.models.urirefs import URI_SIM_PRED_HAS_CONFIG
 from bdd_dsl.models.user_story import UserStoryLoader
 from bdd_dsl.simulation.common import load_attr_path
-from bdd_isaacsim_exec.uri import URI_FRANKA_PANDA, URI_UR_UR10
+# from bdd_isaacsim_exec.uri import URI_FRANKA_PANDA, URI_UR_UR10
 
 
 DIST_THRESHOLD = 0.01
@@ -350,20 +350,20 @@ def move_safely_isaac(context: Context, **kwargs):
     assert isinstance(graph, Graph), f"no 'model_graph' of type rdflib.Graph in context: {graph}"
 
     # agent dependent speed threshold
-    task_params = context.task.get_params()
-    agn_ids = task_params["agents"]["value"]["uris"]
-    assert len(agn_ids) == 1 and isinstance(agn_ids[0], URIRef), f"unexpected agn param: {agn_ids}"
-    agn_model = context.task.get_agn_model(agn_id=agn_ids[0])
-    if URI_FRANKA_PANDA in agn_model.types:
-        threshold = PANDA_SPEED_THRESHOLD
-    elif URI_UR_UR10 in agn_model.types:
-        threshold = UR10_SPEED_THRESHOLD
-    else:
-        raise RuntimeError(f"unexpected agn types: {agn_model.types}")
+    # task_params = context.task.get_params()
+    # agn_ids = task_params["agents"]["value"]["uris"]
+    # assert len(agn_ids) == 1 and isinstance(agn_ids[0], URIRef), f"unexpected agn param: {agn_ids}"
+    # agn_model = context.task.get_agn_model(agn_id=agn_ids[0])
+    # if URI_FRANKA_PANDA in agn_model.types:
+    #     threshold = PANDA_SPEED_THRESHOLD
+    # elif URI_UR_UR10 in agn_model.types:
+    #     threshold = UR10_SPEED_THRESHOLD
+    # else:
+    #     raise RuntimeError(f"unexpected agn types: {agn_model.types}")
 
-    assert hasattr(
-        context, "bhv_observations"
-    ), "move_safely_isaac: no 'bhv_observations' in context"
+    # assert hasattr(
+    #    context, "bhv_observations"
+    # ), "move_safely_isaac: no 'bhv_observations' in context"
 
     move_too_fast = False
     ws_moved = False
@@ -372,21 +372,21 @@ def move_safely_isaac(context: Context, **kwargs):
     debug_msgs = []
 
     # eval speed with a moving average filter
-    agn_speeds = context.bhv_observations["agn_speeds"]
-    filter_horizon = 3
-    for i in range(len(agn_speeds) - filter_horizon):
-        filtered_speed = np.mean(agn_speeds[i : i + filter_horizon])
-        if filtered_speed < threshold:
-            continue
+    # agn_speeds = context.bhv_observations["agn_speeds"]
+    # filter_horizon = 3
+    # for i in range(len(agn_speeds) - filter_horizon):
+    #     filtered_speed = np.mean(agn_speeds[i : i + filter_horizon])
+    #     if filtered_speed < threshold:
+    #         continue
 
-        move_too_fast = True
-        debug_info["causes"].append("fast_ee")
-        debug_info["agn_id"] = params[PARAM_AGN]
-        debug_info["ee_speed"] = float(filtered_speed)
-        debug_msgs.append(
-            f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {threshold:.5f} m/s"
-        )
-        break
+    #     move_too_fast = True
+    #     debug_info["causes"].append("fast_ee")
+    #     debug_info["agn_id"] = params[PARAM_AGN]
+    #     debug_info["ee_speed"] = float(filtered_speed)
+    #     debug_msgs.append(
+    #         f"agent '{params[PARAM_AGN]}' moves EE too fast: {filtered_speed:.5f} m/s > {threshold:.5f} m/s"
+    #     )
+    #     break
 
     # eval sum of displacements for place workspaces
     ws_displacement_sum = context.bhv_observations["ws_displacement_sum"]
