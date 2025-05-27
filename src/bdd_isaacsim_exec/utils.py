@@ -16,12 +16,11 @@ from bdd_dsl.models.environment import ObjectModel
 from bdd_dsl.models.agent import AgentModel
 from bdd_isaacsim_exec.uri import URI_SIM_TYPE_ISAAC_RES, URI_TYPE_USD_FILE
 
-from omni.isaac.core.scenes.scene import Scene as IsaacScene
-from omni.isaac.core.prims.rigid_prim import RigidPrim
-from omni.isaac.core.articulations.articulation import Articulation
-from omni.isaac.core.utils.string import find_unique_string_name
-from omni.isaac.core.utils.stage import add_reference_to_stage, get_stage_units
-from omni.isaac.core.utils.prims import is_prim_path_valid
+from isaacsim.core.api.scenes.scene import Scene as IsaacScene
+from isaacsim.core.prims import SingleRigidPrim, SingleArticulation
+from isaacsim.core.utils.string import find_unique_string_name
+from isaacsim.core.utils.stage import add_reference_to_stage, get_stage_units
+from isaacsim.core.utils.prims import is_prim_path_valid
 
 
 _CACHED_ASSET_ROOT = None
@@ -60,7 +59,7 @@ def get_cached_assets_root_path() -> str:
 
     # These imports are assumed to be called after SimulationApp() call,
     # otherwise my cause import errors
-    from omni.isaac.core.utils.nucleus import get_assets_root_path
+    from isaacsim.core.utils.nucleus import get_assets_root_path
 
     _CACHED_ASSET_ROOT = get_assets_root_path()
     if _CACHED_ASSET_ROOT is not None:
@@ -74,7 +73,7 @@ def create_rigid_prim_in_scene(
     ns_manager: NamespaceManager,
     model: Union[ObjectModel, AgentModel],
     prim_prefix: str,
-) -> RigidPrim:
+) -> SingleRigidPrim:
     id_str = model.id.n3(namespace_manager=ns_manager)
     id_str = get_valid_var_name(id_str)
 
@@ -136,13 +135,15 @@ def create_rigid_prim_in_scene(
             )
 
         add_reference_to_stage(usd_path=asset_path, prim_path=prim_path)
-        return scene.add(RigidPrim(prim_path=prim_path, name=obj_name, **prim_configs))
+        return scene.add(SingleRigidPrim(prim_path=prim_path, name=obj_name, **prim_configs))
 
     if URI_PY_TYPE_MODULE_ATTR in model.model_types:
         correct_cls = None
         for model_id in model.model_type_to_id[URI_PY_TYPE_MODULE_ATTR]:
             python_cls = import_attr_from_model(model=model.models[model_id])
-            if issubclass(python_cls, RigidPrim) or issubclass(python_cls, Articulation):
+            if issubclass(python_cls, SingleRigidPrim) or issubclass(
+                python_cls, SingleArticulation
+            ):
                 correct_cls = python_cls
                 break
         assert (

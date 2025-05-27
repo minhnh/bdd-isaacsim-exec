@@ -12,12 +12,12 @@ from bdd_dsl.models.environment import ObjectModel, WorkspaceModel
 from bdd_dsl.models.user_story import ScenarioVariantModel, SceneModel
 from bdd_isaacsim_exec.utils import create_rigid_prim_in_scene
 
-from omni.isaac.core import World
-from omni.isaac.core.tasks import BaseTask
-from omni.isaac.core.prims.rigid_prim import RigidPrim
-from omni.isaac.core.robots.robot import Robot
-from omni.isaac.core.scenes.scene import Scene as IsaacScene
-import omni.isaac.core.utils.bounds as bounds_utils
+from isaacsim.core.api import World
+from isaacsim.core.api.tasks import BaseTask
+from isaacsim.core.prims import SingleRigidPrim
+from isaacsim.core.api.robots import Robot
+from isaacsim.core.api.scenes.scene import Scene as IsaacScene
+import isaacsim.core.utils.bounds as bounds_utils
 
 
 NS_M_TMPL = Namespace(f"{URL_SECORO_M}/acceptance-criteria/bdd/templates/")
@@ -36,7 +36,7 @@ class MeasurementType(Enum):
 
 class PickPlace(BaseTask):
     _ns_manager: NamespaceManager
-    _obj_prims: dict[URIRef, RigidPrim]
+    _obj_prims: dict[URIRef, SingleRigidPrim]
     _agn_prims: dict[URIRef, Robot]
     _obj_models: dict[URIRef, ObjectModel]
     _ws_models: dict[URIRef, WorkspaceModel]

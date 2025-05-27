@@ -8,10 +8,10 @@ from bdd_dsl.execution.common import Behaviour
 from bdd_isaacsim_exec.tasks import MeasurementType
 from bdd_isaacsim_exec.uri import URI_FRANKA_PANDA, URI_UR_UR10
 
-from omni.isaac.manipulators.controllers import PickPlaceController as GenPickPlaceController
-from omni.isaac.core.controllers.articulation_controller import ArticulationController
-from omni.isaac.core.objects import VisualCone
-from omni.isaac.core.utils.string import find_unique_string_name
+from isaacsim.robot.manipulators.controllers import PickPlaceController as GenPickPlaceController
+from isaacsim.core.api.controllers import ArticulationController
+from isaacsim.core.api.objects import VisualCone
+from isaacsim.core.utils.string import find_unique_string_name
 
 
 class IsaacsimPickPlaceBehaviour(Behaviour):
@@ -68,14 +68,16 @@ class IsaacsimPickPlaceBehaviour(Behaviour):
 
         agn_model = context.task.get_agn_model(self.agn_id)
         if URI_FRANKA_PANDA in agn_model.types:
-            from omni.isaac.franka.controllers import PickPlaceController as PandaPickPlaceCtrl
+            from isaacsim.robot.manipulators.examples.franka.controllers import (
+                PickPlaceController as PandaPickPlaceCtrl,
+            )
 
             self._fsm = PandaPickPlaceCtrl(
                 name="pick_place_controller", gripper=agn_prim.gripper, robot_articulation=agn_prim
             )
             self._gripper_offset = np.array([0, 0.005, 0.0])
         elif URI_UR_UR10 in agn_model.types:
-            from omni.isaac.universal_robots.controllers import (
+            from isaacsim.robot.manipulators.examples.universal_robots.controllers import (
                 PickPlaceController as URPickPlaceCtrl,
             )
 
