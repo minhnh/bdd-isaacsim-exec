@@ -4,15 +4,13 @@ from typing import Any
 import numpy as np
 from rdflib import Graph, Namespace, URIRef
 from rdflib.namespace import NamespaceManager
-from rdf_utils.naming import get_valid_var_name
 from rdf_utils.uri import URL_SECORO_M
 from bdd_dsl.behave import parse_str_param
 from bdd_dsl.models.agent import AgentModel
 from bdd_dsl.models.environment import ObjectModel, WorkspaceModel
-from bdd_dsl.models.user_story import ScenarioVariantModel, SceneModel
+from bdd_dsl.models.user_story import SceneModel
 from bdd_isaacsim_exec.utils import create_rigid_prim_in_scene
 
-from isaacsim.core.api import World
 from isaacsim.core.api.tasks import BaseTask
 from isaacsim.core.prims import SingleRigidPrim
 from isaacsim.core.api.robots import Robot
@@ -79,7 +77,9 @@ class PickPlace(BaseTask):
         return self._agn_models[agn_id]
 
     def get_agn_prim(self, agn_id: URIRef) -> Robot:
-        assert agn_id in self._agn_prims, f"Task {self.name}: no prim for agent {agn_id}"
+        assert (
+            agn_id in self._agn_prims
+        ), f"Task {self.name}: get_agn_prim: no prim for agent {agn_id}"
         return self._agn_prims[agn_id]
 
     def add_scene_obj_model(self, obj_model: ObjectModel) -> None:
@@ -132,7 +132,7 @@ class PickPlace(BaseTask):
         scene.add_default_ground_plane()
 
         for obj_id, obj_model in self._obj_models.items():
-            print(f"*** loading model for object {obj_id}")
+            print(f"*** loading prim for object '{obj_id.n3(namespace_manager=self._ns_manager)}'")
             obj_prim = create_rigid_prim_in_scene(
                 scene=scene,
                 ns_manager=self._ns_manager,
@@ -141,8 +141,10 @@ class PickPlace(BaseTask):
             )
             self._obj_prims[obj_id] = obj_prim
 
+            scene.add(self._obj_prims[obj_id])
+
         for agn_id, agn_model in self._agn_models.items():
-            print(f"*** loading model for agent {agn_id}")
+            print(f"*** loading prim for agent '{agn_id.n3(namespace_manager=self._ns_manager)}'")
             agn_prim = create_rigid_prim_in_scene(
                 scene=scene,
                 ns_manager=self._ns_manager,
@@ -153,6 +155,8 @@ class PickPlace(BaseTask):
                 agn_prim, Robot
             ), f"Prim for agn '{agn_id}' not a Isaac Robot instance"
             self._agn_prims[agn_id] = agn_prim
+
+            scene.add(self._agn_prims[agn_id])
 
     def set_params(self, **kwargs) -> None:
         """Set parameters values.
@@ -219,7 +223,9 @@ class PickPlace(BaseTask):
         return self._task_params
 
     def get_obj_pose(self, obj_id: URIRef) -> tuple[np.ndarray, np.ndarray]:
-        assert obj_id in self._obj_prims, f"Isaac Task '{self.name}': no prim for obj '{obj_id}'"
+        assert (
+            obj_id in self._obj_prims
+        ), f"Task '{self.name}': get_obj_pose: no prim for obj '{obj_id}'"
         obj_position, obj_orientation = self._obj_prims[obj_id].get_world_pose()
         assert (
             len(obj_position) == 3
@@ -244,11 +250,15 @@ class PickPlace(BaseTask):
         return obj_poses
 
     def get_agn_joint_positions(self, agn_id: URIRef) -> np.ndarray:
-        assert agn_id in self._agn_prims, f"Isaac Task '{self.name}': no prim for agn '{agn_id}'"
+        assert (
+            agn_id in self._agn_prims
+        ), f"Task '{self.name}': get_agn_joint_positions: no prim for agn '{agn_id}'"
         return self._agn_prims[agn_id].get_joint_positions()
 
     def get_agn_ee_linear_vel(self, agn_id: URIRef) -> np.ndarray:
-        assert agn_id in self._agn_prims, f"Isaac Task '{self.name}': no prim for agn '{agn_id}'"
+        assert (
+            agn_id in self._agn_prims
+        ), f"Task '{self.name}': get_agn_ee_linear_vel: no prim for agn '{agn_id}'"
         return self._agn_prims[agn_id].end_effector.get_linear_velocity()
 
     def get_observations(self) -> dict:
@@ -292,43 +302,3 @@ class PickPlace(BaseTask):
                 obs[uri] |= {"ee_linear_velocities": agn_ee_linear_vels}
 
         return obs
-
-    def cleanup_scene_models(self) -> None:
-        """Should be called before loading obj and agent models.
-
-        Either in before_scenario or after_scenario
-        """
-        self._obj_models.clear()
-        self._ws_models.clear()
-        self._agn_models.clear()
-        self._obj_prims.clear()
-        self._agn_prims.clear()
-        self._measurements.clear()
-
-
-def load_isaacsim_task(
-    world: World, graph: Graph, scr_var: ScenarioVariantModel, **kwargs: Any
-) -> BaseTask:
-    task_name = get_valid_var_name(
-        scr_var.scenario.task_id.n3(namespace_manager=graph.namespace_manager)
-    )
-    try:
-        return world.get_task(task_name)
-    except Exception:
-        # task is not added
-        pass
-
-    if (
-        scr_var.scenario.task_id == URI_M_TASK_PICKPLACE
-        or scr_var.scenario.task_id == URI_M_TASK_SORTING
-    ):
-        task = PickPlace(
-            scene_model=scr_var.scene,
-            task_name=task_name,
-            ns_manger=graph.namespace_manager,
-            **kwargs,
-        )
-        world.add_task(task)
-        return task
-
-    raise RuntimeError(f"unhandled task: {scr_var.scenario.task_id}")

@@ -58,8 +58,8 @@ def get_cached_assets_root_path() -> str:
         return _CACHED_ASSET_ROOT
 
     # These imports are assumed to be called after SimulationApp() call,
-    # otherwise my cause import errors
-    from isaacsim.core.utils.nucleus import get_assets_root_path
+    # otherwise may cause import errors
+    from isaacsim.storage.native.nucleus import get_assets_root_path
 
     _CACHED_ASSET_ROOT = get_assets_root_path()
     if _CACHED_ASSET_ROOT is not None:
@@ -135,7 +135,7 @@ def create_rigid_prim_in_scene(
             )
 
         add_reference_to_stage(usd_path=asset_path, prim_path=prim_path)
-        return scene.add(SingleRigidPrim(prim_path=prim_path, name=obj_name, **prim_configs))
+        return SingleRigidPrim(prim_path=prim_path, name=obj_name, **prim_configs)
 
     if URI_PY_TYPE_MODULE_ATTR in model.model_types:
         correct_cls = None
@@ -150,6 +150,6 @@ def create_rigid_prim_in_scene(
             correct_cls is not None
         ), f"'{model.id}' has no handled Python class model: {model.models.keys()}"
 
-        return scene.add(correct_cls(name=obj_name, prim_path=prim_path, **prim_configs))
+        return correct_cls(name=obj_name, prim_path=prim_path, **prim_configs)
 
     raise RuntimeError(f"unhandled types for object'{model.id}': {model.model_types}")

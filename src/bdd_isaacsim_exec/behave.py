@@ -1,13 +1,13 @@
 # SPDX-License-Identifier:  GPL-3.0-or-later
-from typing import Any
 import time
 import numpy as np
 from behave import use_fixture
 from behave.model import Scenario
 from behave.runner import Context
 from rdflib import Graph, URIRef
-from rdf_utils.uri import try_expand_curie
 from rdf_utils.models.python import load_py_module_attr
+from rdf_utils.naming import get_valid_var_name
+from rdf_utils.uri import try_expand_curie
 from bdd_dsl.behave import (
     PARAM_AGN,
     PARAM_EVT,
@@ -39,19 +39,13 @@ PANDA_SPEED_THRESHOLD = PANDA_MAX_EE_SPEED_MEAN + 2 * PANDA_MAX_EE_SPEED_STD
 SPEED_THRESHOLD = 1.1
 
 
-def isaacsim_fixture(context: Context, **kwargs: Any):
+def isaacsim_fixture(context: Context):
     from isaacsim import SimulationApp
 
-    unit_length = kwargs.get("unit_length", 1.0)
-    headless = context.headless
-    time_step_sec = context.time_step_sec
-
-    print(f"*** STARTING ISAAC SIM, headless={headless}, unit_length={unit_length} ****")
-    context.simulation_app = SimulationApp({"headless": headless})
-
-    from isaacsim.core.api import World
-
-    context.world = World(stage_units_in_meters=unit_length, physics_dt=time_step_sec)
+    print(
+        f"*** STARTING ISAAC SIM, headless={context.headless}, time_step={context.time_step_sec}s, unit_length={context.unit_length} ****"
+    )
+    context.simulation_app = SimulationApp({"headless": context.headless})
 
     yield context.simulation_app
 
@@ -59,10 +53,13 @@ def isaacsim_fixture(context: Context, **kwargs: Any):
     context.simulation_app.close()
 
 
-def before_all_isaac(context: Context, headless: bool, time_step_sec: float):
+def before_all_isaac(
+    context: Context, headless: bool, time_step_sec: float, unit_length: float = 1.0
+):
     context.headless = headless
     context.time_step_sec = time_step_sec
-    use_fixture(isaacsim_fixture, context, unit_length=1.0)
+    context.unit_length = unit_length
+    use_fixture(isaacsim_fixture, context)
 
     g = getattr(context, "model_graph", None)
     assert g is not None, "'model_graph' attribute not found in context"
@@ -72,6 +69,12 @@ def before_all_isaac(context: Context, headless: bool, time_step_sec: float):
 
 
 def before_scenario_isaac(context: Context, scenario: Scenario):
+    from isaacsim.core.api import World
+
+    context.world = World(
+        stage_units_in_meters=context.unit_length, physics_dt=context.time_step_sec
+    )
+
     model_graph = getattr(context, "model_graph", None)
     assert model_graph is not None and isinstance(model_graph, Graph)
 
@@ -101,17 +104,31 @@ def before_scenario_isaac(context: Context, scenario: Scenario):
     )
     context.current_scenario = scenario_var_model
 
-    # TODO(minhnh): handles different task? Isaacsim expects a single task
-    from bdd_isaacsim_exec.tasks import load_isaacsim_task
+    from bdd_isaacsim_exec.tasks import URI_M_TASK_PICKPLACE, URI_M_TASK_SORTING, PickPlace
 
-    task = load_isaacsim_task(world=context.world, graph=model_graph, scr_var=scenario_var_model)
+    task_name = get_valid_var_name(
+        scenario_var_model.scenario.task_id.n3(namespace_manager=model_graph.namespace_manager)
+    )
+
+    if (
+        scenario_var_model.scenario.task_id == URI_M_TASK_PICKPLACE
+        or scenario_var_model.scenario.task_id == URI_M_TASK_SORTING
+    ):
+        task = PickPlace(
+            scene_model=scenario_var_model.scene,
+            task_name=task_name,
+            ns_manger=model_graph.namespace_manager,
+        )
+    else:
+        raise RuntimeError(f"unhandled task: {scenario_var_model.scenario.task_id}")
+
     print(f"**** Loaded Isaac Sim Task {task.name}")
+    context.world.add_task(task)
     context.task = task
 
 
 def after_scenario_isaac(context: Context):
-    context.task.cleanup_scene_models()
-    context.world.clear()
+    context.world.clear_instance()
 
 
 def given_objects_isaac(context: Context):
